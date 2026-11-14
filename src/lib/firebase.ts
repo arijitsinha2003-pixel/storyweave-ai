@@ -517,7 +517,7 @@ export async function saveUserStory(uid: string, story: StoryRecord): Promise<St
   if (typeof story.idea === 'string' && story.idea.trim()) {
     basePayload.idea = clampString(story.idea.trim(), 2000);
   }
-  if (Array.isArray(story.characterDetails) && story.characterDetails.length > 0) {
+  if (Array.isArray(story.characterDetails)) {
     basePayload.characterDetails = story.characterDetails.slice(0, 20).map((cd) => ({
       name: clampString(cd?.name ?? '', 160),
       role: clampString(cd?.role ?? '', 160),

@@ -55,9 +55,9 @@ function resolveLanguageInstruction(lang?: string): string {
 }
 
 const LENGTH_GUIDANCE: Record<string, string> = {
-  Short: "approximately 450 to 650 words across 4-6 well-crafted paragraphs",
-  Medium: "approximately 850 to 1,200 words across 7-10 vivid paragraphs",
-  Long: "approximately 1,400 to 1,800 words across 11-15 immersive paragraphs",
+  Short: "approximately 400 to 550 words across 4-6 well-crafted paragraphs",
+  Medium: "approximately 700 to 950 words across 6-9 vivid paragraphs",
+  Long: "approximately 1,050 to 1,350 words across 9-12 immersive paragraphs",
 };
 
 const PRIMARY_TEXT_MODEL = "gemini-4-hydrogen";
@@ -95,11 +95,61 @@ function parseJsonSafe(rawText: string): Record<string, unknown> {
     .replace(/^```(?:json)?\s*/i, "")
     .replace(/\s*```$/i, "")
     .trim();
-  return JSON.parse(cleaned) as Record<string, unknown>;
+  try {
+    return JSON.parse(cleaned) as Record<string, unknown>;
+  } catch {
+    const start = cleaned.indexOf("{");
+    const end = cleaned.lastIndexOf("}");
+    if (start >= 0 && end > start) {
+      return JSON.parse(cleaned.slice(start, end + 1)) as Record<string, unknown>;
+    }
+    throw new Error("Model returned malformed JSON. Please try generating again.");
+  }
+}
+
+function isAuthOrBadRequestError(error: unknown): boolean {
+  const msg = error instanceof Error ? error.message : String(error ?? "");
+  const status =
+    typeof error === "object" && error !== null && "status" in error
+      ? Number((error as { status?: unknown }).status)
+      : 0;
+  return (
+    status === 400 ||
+    status === 401 ||
+    status === 403 ||
+    msg.includes("API_KEY_INVALID") ||
+    msg.includes("PERMISSION_DENIED")
+  );
+}
+
+function runWithTimeout<T>(
+  fn: (signal: AbortSignal) => Promise<T>,
+  ms: number,
+  label: string
+): Promise<T> {
+  const controller = new AbortController();
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      controller.abort();
+      reject(new Error(`${label} timed out after ${ms}ms`));
+    }, ms);
+    fn(controller.signal).then(
+      (val) => {
+        clearTimeout(timer);
+        resolve(val);
+      },
+      (err) => {
+        clearTimeout(timer);
+        reject(err);
+      }
+    );
+  });
 }
 
 async function generateWithFallback(params: {
   contents: string;
+  primaryTimeoutMs?: number;
+  fallbackTimeoutMs?: number;
   config?: {
     systemInstruction?: string;
     responseMimeType?: string;
@@ -108,31 +158,52 @@ async function generateWithFallback(params: {
 }) {
   const ai = getAiClient();
   const baseConfig = params.config ?? {};
+  const primaryTimeoutMs = params.primaryTimeoutMs ?? 20000;
+  const fallbackTimeoutMs = params.fallbackTimeoutMs ?? 45000;
 
   try {
-    return await ai.models.generateContent({
-      model: PRIMARY_TEXT_MODEL,
-      contents: params.contents,
-      config: {
-        ...baseConfig,
-        thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
-      } as Parameters<typeof ai.models.generateContent>[0]["config"],
-    });
+    return await runWithTimeout(
+      (signal) =>
+        ai.models.generateContent({
+          model: PRIMARY_TEXT_MODEL,
+          contents: params.contents,
+          config: {
+            ...baseConfig,
+            abortSignal: signal,
+            thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
+          } as Parameters<typeof ai.models.generateContent>[0]["config"],
+        }),
+      primaryTimeoutMs,
+      `Primary model (${PRIMARY_TEXT_MODEL})`
+    );
   } catch (primaryErr) {
-    if (!isQuotaOrRateError(primaryErr)) {
+    if (isAuthOrBadRequestError(primaryErr)) {
       throw primaryErr;
     }
 
-    console.warn(
-      `Primary model (${PRIMARY_TEXT_MODEL}) hit rate/quota limit; falling back to ${FALLBACK_TEXT_MODEL}.`
+    const reason = isQuotaOrRateError(primaryErr)
+      ? "rate/quota limit"
+      : primaryErr instanceof Error
+        ? primaryErr.message
+        : "transient condition";
+    console.info(
+      `Switching to ${FALLBACK_TEXT_MODEL} after ${PRIMARY_TEXT_MODEL} ${reason}.`
     );
-    await sleep(450);
+    await sleep(300);
 
-    return await ai.models.generateContent({
-      model: FALLBACK_TEXT_MODEL,
-      contents: params.contents,
-      config: baseConfig as Parameters<typeof ai.models.generateContent>[0]["config"],
-    });
+    return await runWithTimeout(
+      (signal) =>
+        ai.models.generateContent({
+          model: FALLBACK_TEXT_MODEL,
+          contents: params.contents,
+          config: {
+            ...baseConfig,
+            abortSignal: signal,
+          } as Parameters<typeof ai.models.generateContent>[0]["config"],
+        }),
+      fallbackTimeoutMs,
+      `Fallback model (${FALLBACK_TEXT_MODEL})`
+    );
   }
 }
 
@@ -158,6 +229,13 @@ function handleGeminiError(res: express.Response, error: unknown, fallback: stri
       error: retryHint
         ? `Gemini Free Tier quota reached (retry available in ${retryHint}). For uninterrupted generation, you can select a billing-enabled API key in Settings > Secrets.`
         : "Gemini API quota or rate limit reached. Please wait a moment and retry, or select a billing-enabled API key in Settings > Secrets.",
+    });
+  }
+
+  if (message.includes("timed out after")) {
+    console.warn(`${fallback}:`, message);
+    return res.status(504).json({
+      error: `${fallback}: The AI took too long to respond. Please try again or choose Short/Medium length.`,
     });
   }
 
@@ -447,7 +525,13 @@ async function startServer() {
       }
 
       const parsed = parseJsonSafe(rawText);
-      const narrative = String(parsed.narrative ?? "").trim();
+      const normalizeProse = (val: unknown) =>
+        String(val ?? "")
+          .replace(/\r\n/g, "\n")
+          .replace(/\\n/g, "\n")
+          .trim();
+
+      const narrative = normalizeProse(parsed.narrative);
       if (!narrative) {
         return res.status(502).json({
           error: "The generated story was incomplete. Please try generating again.",
@@ -455,22 +539,24 @@ async function startServer() {
       }
 
       const rawChars = Array.isArray(parsed.characters) ? parsed.characters : [];
-      const sanitizedChars = rawChars.map((c) => ({
-        name: String((c as { name?: unknown })?.name ?? "Character").trim(),
-        role: String((c as { role?: unknown })?.role ?? "Supporting").trim(),
-        trait: String((c as { trait?: unknown })?.trait ?? "").trim(),
-      }));
+      const sanitizedChars = rawChars
+        .filter((c) => c && typeof c === "object")
+        .map((c) => ({
+          name: String((c as { name?: unknown })?.name ?? "Character").trim() || "Character",
+          role: String((c as { role?: unknown })?.role ?? "Supporting").trim() || "Supporting",
+          trait: String((c as { trait?: unknown })?.trait ?? "").trim(),
+        }));
 
       const wordCount = narrative.split(/\s+/).filter(Boolean).length;
       return res.json({
         story: {
-          title: String(parsed.title ?? "Untitled Story").trim(),
-          description: String(parsed.description ?? "").trim(),
+          title: normalizeProse(parsed.title) || "Untitled Story",
+          description: normalizeProse(parsed.description),
           narrative,
           characters: sanitizedChars,
-          conflict: String(parsed.conflict ?? "").trim(),
-          climax: String(parsed.climax ?? "").trim(),
-          resolution: String(parsed.resolution ?? "").trim(),
+          conflict: normalizeProse(parsed.conflict),
+          climax: normalizeProse(parsed.climax),
+          resolution: normalizeProse(parsed.resolution),
           genre,
           tone,
           writingStyle,
@@ -1011,32 +1097,38 @@ async function startServer() {
         }
       }
 
-      const ttsResponse = await getAiClient().models.generateContent({
-        model: "gemini-3.8-flash-lite-tts",
-        contents: [
-          {
-            role: "user",
-            parts: [
+      const ttsResponse = await runWithTimeout(
+        (signal) =>
+          getAiClient().models.generateContent({
+            model: "gemini-3.8-flash-lite-tts",
+            contents: [
               {
-                text: preparedSpokenText,
-                speechMetadata: {
-                  style: `Warm, expressive literary storyteller narrating naturally in ${targetLangInstruction}${
-                    tone ? ` with ${tone.toLowerCase()} pacing` : ""
-                  }`,
-                },
+                role: "user",
+                parts: [
+                  {
+                    text: preparedSpokenText,
+                    speechMetadata: {
+                      style: `Warm, expressive literary storyteller narrating naturally in ${targetLangInstruction}${
+                        tone ? ` with ${tone.toLowerCase()} pacing` : ""
+                      }`,
+                    },
+                  },
+                ],
               },
             ],
-          },
-        ],
-        config: {
-          responseModalities: ["AUDIO"],
-          speechConfig: {
-            voiceConfig: {
-              prebuiltVoiceConfig: { voiceName: safeVoice },
+            config: {
+              abortSignal: signal,
+              responseModalities: ["AUDIO"],
+              speechConfig: {
+                voiceConfig: {
+                  prebuiltVoiceConfig: { voiceName: safeVoice },
+                },
+              },
             },
-          },
-        },
-      });
+          }),
+        25000,
+        "Voice synthesis (gemini-3.8-flash-lite-tts)"
+      );
 
       const audioPart = ttsResponse.candidates?.[0]?.content?.parts?.find(
         (part) => Boolean(part?.inlineData?.data)

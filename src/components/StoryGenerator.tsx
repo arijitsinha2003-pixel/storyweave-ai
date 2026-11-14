@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   AlertCircle,
   BookOpen,
@@ -89,8 +89,41 @@ export function StoryGenerator({
   const [copied, setCopied] = useState(false);
   const [savedNotice, setSavedNotice] = useState(false);
 
+  const prevActiveStoryRef = useRef<StoryRecord | null>(activeStory);
+  const draftRef = useRef<StoryRecord | null>(draft);
+  draftRef.current = draft;
+  const abortControllerRef = useRef<AbortController | null>(null);
+  const copyTimerRef = useRef<number | null>(null);
+  const saveTimerRef = useRef<number | null>(null);
+
   useEffect(() => {
+    return () => {
+      abortControllerRef.current?.abort();
+      if (copyTimerRef.current !== null) window.clearTimeout(copyTimerRef.current);
+      if (saveTimerRef.current !== null) window.clearTimeout(saveTimerRef.current);
+    };
+  }, []);
+
+  useEffect(() => {
+    const prev = prevActiveStoryRef.current;
+    prevActiveStoryRef.current = activeStory;
+    const currentDraft = draftRef.current;
+
+    if (activeStory === prev) {
+      if (!activeStory && !currentDraft) {
+        setTone(preferences.defaultTone);
+        setLength(preferences.defaultLength);
+      }
+      return;
+    }
+
     if (activeStory) {
+      const isSameDraftSave =
+        currentDraft !== null &&
+        activeStory.id === currentDraft.id &&
+        activeStory.title === currentDraft.title &&
+        activeStory.narrative === currentDraft.narrative;
+
       setDraft(activeStory);
       setIdea(activeStory.idea ?? activeStory.description);
       setGenre(activeStory.genre || GENRES[0]);
@@ -99,15 +132,39 @@ export function StoryGenerator({
       if (activeStory.lengthLabel?.startsWith('Short')) setLength('Short');
       else if (activeStory.lengthLabel?.startsWith('Long')) setLength('Long');
       else setLength('Medium');
+
+      if (!isSameDraftSave) {
+        setIsEditing(false);
+        setError(null);
+        setSavedNotice(false);
+      }
+    } else if (prev !== null) {
+      // Reset cleanly when switching from an opened/saved story to "+ New Story"
+      setDraft(null);
+      setIdea('');
+      setGenre(GENRES[0]);
+      setTone(preferences.defaultTone);
+      setWritingStyle(WRITING_STYLES[0]);
+      setLength(preferences.defaultLength);
       setIsEditing(false);
       setError(null);
+      setSavedNotice(false);
     }
-  }, [activeStory, preferences.defaultTone]);
+  }, [activeStory, preferences.defaultLength, preferences.defaultTone]);
+
+  const genreOptions = GENRES.includes(genre) ? GENRES : [genre, ...GENRES];
+  const toneOptions = TONES.includes(tone) ? TONES : [tone, ...TONES];
+  const styleOptions = WRITING_STYLES.includes(writingStyle)
+    ? WRITING_STYLES
+    : [writingStyle, ...WRITING_STYLES];
 
   const computeWordCount = (text: string) =>
     text.trim() ? text.trim().split(/\s+/).filter(Boolean).length : 0;
 
-  const handleGenerate = async (e?: React.FormEvent) => {
+  const handleGenerate = async (
+    e?: React.FormEvent,
+    options?: { regenerate?: boolean }
+  ) => {
     if (e) e.preventDefault();
 
     const trimmedIdea = idea.trim();
@@ -116,15 +173,24 @@ export function StoryGenerator({
       return;
     }
 
+    abortControllerRef.current?.abort();
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
+    const timeoutId = window.setTimeout(() => controller.abort(), 100000);
+
     setIsGenerating(true);
     setError(null);
     setSavedNotice(false);
     setIsEditing(false);
 
+    const isSameDraftIdea = Boolean(draft && (draft.idea ?? '').trim() === trimmedIdea);
+    const keepExistingDraftId = Boolean(options?.regenerate || isSameDraftIdea);
+
     try {
       const response = await fetch('/api/stories/generate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        signal: controller.signal,
         body: JSON.stringify({
           idea: trimmedIdea,
           genre,
@@ -144,25 +210,29 @@ export function StoryGenerator({
       const charDetails: GeneratedCharacterDetail[] = Array.isArray(generated.characters)
         ? generated.characters
         : [];
+      const cleanNarrative = String(generated.narrative ?? '')
+        .replace(/\r\n/g, '\n')
+        .replace(/\\n/g, '\n')
+        .trim();
 
       const nextRecord: StoryRecord = {
-        id: draft?.id ?? `story-${Date.now()}`,
+        id: keepExistingDraftId && draft?.id ? draft.id : `story-${Date.now()}`,
         idea: trimmedIdea,
-        title: generated.title,
-        description: generated.description,
-        genre: generated.genre,
-        tone: generated.tone,
-        writingStyle: generated.writingStyle,
-        lengthLabel: generated.lengthLabel,
+        title: String(generated.title ?? 'Untitled Story').trim(),
+        description: String(generated.description ?? '').trim(),
+        genre: String(generated.genre ?? genre),
+        tone: String(generated.tone ?? tone),
+        writingStyle: String(generated.writingStyle ?? writingStyle),
+        lengthLabel: String(generated.lengthLabel ?? `${length} Story`),
         language: preferences.language,
-        wordCount: generated.wordCount ?? computeWordCount(generated.narrative),
-        narrative: generated.narrative,
-        conflict: generated.conflict,
-        climax: generated.climax,
-        resolution: generated.resolution,
+        wordCount: generated.wordCount ?? computeWordCount(cleanNarrative),
+        narrative: cleanNarrative,
+        conflict: String(generated.conflict ?? '').trim(),
+        climax: String(generated.climax ?? '').trim(),
+        resolution: String(generated.resolution ?? '').trim(),
         characters: charDetails.map((c) => c.name),
         characterDetails: charDetails,
-        coverImage: draft?.coverImage,
+        coverImage: keepExistingDraftId ? draft?.coverImage : undefined,
         updatedAt: new Date().toLocaleDateString('en-IN', {
           month: 'short',
           day: 'numeric',
@@ -172,9 +242,19 @@ export function StoryGenerator({
 
       setDraft(nextRecord);
     } catch (err) {
+      if (err instanceof DOMException && err.name === 'AbortError') {
+        setError(
+          'Story generation timed out while waiting for the AI response. Please try again or choose Short/Medium length.'
+        );
+        return;
+      }
       const msg = err instanceof Error ? err.message : 'Unexpected error while generating story.';
       setError(msg);
     } finally {
+      window.clearTimeout(timeoutId);
+      if (abortControllerRef.current === controller) {
+        abortControllerRef.current = null;
+      }
       setIsGenerating(false);
     }
   };
@@ -197,7 +277,8 @@ export function StoryGenerator({
     try {
       await navigator.clipboard.writeText(formatted);
       setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
+      if (copyTimerRef.current !== null) window.clearTimeout(copyTimerRef.current);
+      copyTimerRef.current = window.setTimeout(() => setCopied(false), 2000);
     } catch {
       setError('Clipboard copy failed. You can select and copy the text directly.');
     }
@@ -219,7 +300,8 @@ export function StoryGenerator({
     try {
       await onSaveStory(updatedStory);
       setSavedNotice(true);
-      setTimeout(() => setSavedNotice(false), 3000);
+      if (saveTimerRef.current !== null) window.clearTimeout(saveTimerRef.current);
+      saveTimerRef.current = window.setTimeout(() => setSavedNotice(false), 3000);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unable to save story right now.');
     }
@@ -320,7 +402,7 @@ export function StoryGenerator({
                 onChange={(e) => setGenre(e.target.value)}
                 className="w-full rounded-xl bg-[var(--bg-elevated)] border border-[var(--border-subtle)] px-3.5 py-2.5 text-sm text-[var(--text-primary)] focus:outline-none focus:border-[#8B5CF6]"
               >
-                {GENRES.map((g) => (
+                {genreOptions.map((g) => (
                   <option key={g} value={g}>
                     {g}
                   </option>
@@ -337,7 +419,7 @@ export function StoryGenerator({
                 onChange={(e) => setTone(e.target.value)}
                 className="w-full rounded-xl bg-[var(--bg-elevated)] border border-[var(--border-subtle)] px-3.5 py-2.5 text-sm text-[var(--text-primary)] focus:outline-none focus:border-[#8B5CF6]"
               >
-                {TONES.map((tOpt) => (
+                {toneOptions.map((tOpt) => (
                   <option key={tOpt} value={tOpt}>
                     {tOpt}
                   </option>
@@ -355,7 +437,7 @@ export function StoryGenerator({
               onChange={(e) => setWritingStyle(e.target.value)}
               className="w-full rounded-xl bg-[var(--bg-elevated)] border border-[var(--border-subtle)] px-3.5 py-2.5 text-sm text-[var(--text-primary)] focus:outline-none focus:border-[#8B5CF6]"
             >
-              {WRITING_STYLES.map((style) => (
+              {styleOptions.map((style) => (
                 <option key={style} value={style}>
                   {style}
                 </option>
@@ -501,7 +583,7 @@ export function StoryGenerator({
 
                   <button
                     type="button"
-                    onClick={() => handleGenerate()}
+                    onClick={() => handleGenerate(undefined, { regenerate: true })}
                     disabled={isGenerating}
                     className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-[var(--bg-surface)] border border-[var(--border-subtle)] text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors cursor-pointer whitespace-nowrap"
                   >
@@ -585,9 +667,13 @@ export function StoryGenerator({
                     />
                   ) : (
                     <div className="space-y-4 text-[var(--text-primary)] text-base leading-[1.75]">
-                      {draft.narrative.split(/\n\s*\n/).map((paragraph, index) => (
-                        <p key={index}>{paragraph}</p>
-                      ))}
+                      {draft.narrative
+                        .split(/\n+/)
+                        .map((p) => p.trim())
+                        .filter(Boolean)
+                        .map((paragraph, index) => (
+                          <p key={index}>{paragraph}</p>
+                        ))}
                     </div>
                   )}
                 </div>
