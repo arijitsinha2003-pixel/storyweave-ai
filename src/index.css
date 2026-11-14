@@ -1,5 +1,12 @@
+
 @import "tailwindcss";
+
+/* Tailwind CSS v4 dark mode support */
 @custom-variant dark (&:where(.dark, .dark *));
+
+/* ========================================
+   THEME CONFIGURATION
+======================================== */
 
 @theme {
   --font-display: "Plus Jakarta Sans", system-ui, -apple-system, sans-serif;
@@ -9,86 +16,159 @@
   --color-midnight-950: #0B0B14;
   --color-midnight-900: #121225;
   --color-midnight-800: #19192D;
+
   --color-violet-core: #8B5CF6;
   --color-violet-soft: #A78BFA;
   --color-indigo-core: #6366F1;
+
   --color-ink-primary: #F8FAFC;
 }
 
+/* ========================================
+   LIGHT THEME
+======================================== */
+
 :root {
   color-scheme: light;
+
   --bg-canvas: #F7F6FB;
   --bg-surface: #FFFFFF;
   --bg-elevated: #F0EFF8;
   --bg-input: #FFFFFF;
+
   --bg-glass: rgba(255, 255, 255, 0.86);
   --bg-glass-elevated: rgba(248, 247, 253, 0.94);
+
   --text-primary: #111322;
   --text-muted: #4A4E69;
   --text-subtle: #686D88;
+
   --accent-text: #6D28D9;
+
   --border-subtle: rgba(109, 40, 217, 0.14);
   --border-strong: rgba(109, 40, 217, 0.26);
 }
 
+/* ========================================
+   DARK THEME
+======================================== */
+
 .dark {
   color-scheme: dark;
+
   --bg-canvas: #0B0B14;
   --bg-surface: #121225;
   --bg-elevated: #19192D;
   --bg-input: rgba(11, 11, 20, 0.82);
+
   --bg-glass: rgba(18, 18, 37, 0.74);
   --bg-glass-elevated: rgba(25, 25, 45, 0.82);
+
   --text-primary: #F8FAFC;
   --text-muted: rgba(248, 250, 252, 0.72);
   --text-subtle: rgba(248, 250, 252, 0.52);
+
   --accent-text: #A78BFA;
+
   --border-subtle: rgba(167, 139, 250, 0.15);
   --border-strong: rgba(167, 139, 250, 0.26);
 }
 
+/* ========================================
+   BASE STYLES
+======================================== */
+
 @layer base {
   html {
+    min-height: 100%;
     scroll-behavior: smooth;
     font-family: var(--font-sans);
     background-color: var(--bg-canvas);
     color: var(--text-primary);
   }
 
-  h1, h2, h3, h4, h5, h6 {
+  body {
+    min-height: 100vh;
+    margin: 0;
+    background-color: var(--bg-canvas);
+    color: var(--text-primary);
+    font-family: var(--font-sans);
+    letter-spacing: 0.005em;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    transition:
+      background-color 180ms ease,
+      color 180ms ease;
+  }
+
+  h1,
+  h2,
+  h3,
+  h4,
+  h5,
+  h6 {
     font-family: var(--font-display);
     letter-spacing: -0.02em;
   }
 
-  body {
-    background-color: var(--bg-canvas);
+  button,
+  input,
+  textarea,
+  select {
+    font: inherit;
+  }
+
+  button {
+    cursor: pointer;
+  }
+
+  img,
+  svg,
+  video {
+    max-width: 100%;
+  }
+
+  ::selection {
+    background-color: rgba(139, 92, 246, 0.28);
     color: var(--text-primary);
-    letter-spacing: 0.005em;
-    -webkit-font-smoothing: antialiased;
-    -moz-osx-font-smoothing: grayscale;
-    transition: background-color 180ms ease, color 180ms ease;
   }
 }
 
-/* Glassmorphism & Soft Glowing Borders */
+/* ========================================
+   GLASSMORPHISM EFFECTS
+======================================== */
+
 .glass-surface {
   background: var(--bg-glass);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
   border: 1px solid var(--border-subtle);
 }
 
 .glass-surface-elevated {
   background: var(--bg-glass-elevated);
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
   border: 1px solid var(--border-strong);
 }
 
+@supports (backdrop-filter: blur(16px)) {
+  .glass-surface {
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+  }
+
+  .glass-surface-elevated {
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+  }
+}
+
+/* ========================================
+   HOVER & GLOW EFFECTS
+======================================== */
+
 .glow-border-hover {
-  transition: border-color 180ms cubic-bezier(0.16, 1, 0.3, 1),
-              box-shadow 180ms cubic-bezier(0.16, 1, 0.3, 1),
-              transform 180ms cubic-bezier(0.16, 1, 0.3, 1);
+  transition:
+    border-color 180ms cubic-bezier(0.16, 1, 0.3, 1),
+    box-shadow 180ms cubic-bezier(0.16, 1, 0.3, 1),
+    transform 180ms cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .glow-border-hover:hover {
@@ -96,17 +176,38 @@
   box-shadow: 0 10px 30px -12px rgba(139, 92, 246, 0.24);
 }
 
+/* ========================================
+   TYPOGRAPHY UTILITIES
+======================================== */
+
 .tabular-figures {
   font-variant-numeric: tabular-nums;
 }
+
+/* ========================================
+   ACCESSIBILITY
+======================================== */
+
+:focus-visible {
+  outline: 2px solid var(--color-violet-core);
+  outline-offset: 3px;
+}
+
+/* ========================================
+   REDUCED MOTION SUPPORT
+======================================== */
 
 @media (prefers-reduced-motion: reduce) {
   html {
     scroll-behavior: auto;
   }
-  *, *::before, *::after {
+
+  *,
+  *::before,
+  *::after {
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
   }
 }
