@@ -1,0 +1,385 @@
+{
+  "entities": {
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "Private authenticated writer account profile containing PII isolated per owner.",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "email": {
+          "type": "string",
+          "format": "email",
+          "minLength": 3,
+          "maxLength": 254
+        },
+        "displayName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120
+        },
+        "penName": {
+          "type": "string",
+          "maxLength": 120
+        },
+        "photoURL": {
+          "type": "string",
+          "maxLength": 1000
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["uid", "email", "displayName", "createdAt", "updatedAt"]
+    },
+    "Story": {
+      "title": "Story",
+      "description": "A user-owned StoryWeave narrative draft with metadata, characters, and optional alternative endings.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "userId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "idea": {
+          "type": "string",
+          "maxLength": 2000
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 240
+        },
+        "description": {
+          "type": "string",
+          "maxLength": 2000
+        },
+        "genre": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 100
+        },
+        "tone": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 100
+        },
+        "writingStyle": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 100
+        },
+        "lengthLabel": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 60
+        },
+        "language": {
+          "type": "string",
+          "enum": ["en", "hi", "bn", "ta", "mr", "te"]
+        },
+        "wordCount": {
+          "type": "number"
+        },
+        "narrative": {
+          "type": "string",
+          "maxLength": 100000
+        },
+        "conflict": {
+          "type": "string",
+          "maxLength": 4000
+        },
+        "climax": {
+          "type": "string",
+          "maxLength": 4000
+        },
+        "resolution": {
+          "type": "string",
+          "maxLength": 4000
+        },
+        "characters": {
+          "type": "array",
+          "description": "Up to 20 character names featured in the story."
+        },
+        "characterDetails": {
+          "type": "array",
+          "description": "Up to 20 structured character blurbs."
+        },
+        "alternativeEndings": {
+          "type": "array",
+          "description": "Up to 6 generated alternative ending objects."
+        },
+        "preferredEndingType": {
+          "type": "string",
+          "enum": ["Happy Ending", "Sad Ending", "Unexpected Twist", "Open Ending"]
+        },
+        "coverImage": {
+          "type": "string",
+          "maxLength": 1000
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "id",
+        "userId",
+        "title",
+        "description",
+        "genre",
+        "tone",
+        "writingStyle",
+        "lengthLabel",
+        "wordCount",
+        "narrative",
+        "conflict",
+        "climax",
+        "resolution",
+        "characters",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "Character": {
+      "title": "Character",
+      "description": "A user-owned fictional character sheet created in Character Studio.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "userId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160
+        },
+        "role": {
+          "type": "string",
+          "maxLength": 160
+        },
+        "personality": {
+          "type": "string",
+          "maxLength": 3000
+        },
+        "background": {
+          "type": "string",
+          "maxLength": 5000
+        },
+        "strengths": {
+          "type": "array",
+          "description": "Up to 15 character strengths."
+        },
+        "weaknesses": {
+          "type": "array",
+          "description": "Up to 15 character weaknesses."
+        },
+        "linkedStoryId": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "id",
+        "userId",
+        "name",
+        "role",
+        "personality",
+        "background",
+        "strengths",
+        "weaknesses",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "PlotOutline": {
+      "title": "PlotOutline",
+      "description": "A user-owned six-stage narrative arc and chapter/scene breakdown.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "userId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 240
+        },
+        "premise": {
+          "type": "string",
+          "maxLength": 4000
+        },
+        "linkedStoryId": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "characterNames": {
+          "type": "array",
+          "description": "Up to 20 linked character names."
+        },
+        "beats": {
+          "type": "array",
+          "description": "Up to 10 dramatic story arc beats."
+        },
+        "chapters": {
+          "type": "array",
+          "description": "Up to 25 chapter objects with nested scenes."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "id",
+        "userId",
+        "title",
+        "premise",
+        "characterNames",
+        "beats",
+        "chapters",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "UserPreferences": {
+      "title": "UserPreferences",
+      "description": "User workspace preferences including language, theme, and editor defaults.",
+      "type": "object",
+      "properties": {
+        "userId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "defaultLength": {
+          "type": "string",
+          "enum": ["Short", "Medium", "Long"]
+        },
+        "defaultTone": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 100
+        },
+        "editorFontSize": {
+          "type": "string",
+          "enum": ["Compact", "Standard", "Relaxed"]
+        },
+        "showWordCounts": {
+          "type": "boolean"
+        },
+        "language": {
+          "type": "string",
+          "enum": ["en", "hi", "bn", "ta", "mr", "te"]
+        },
+        "theme": {
+          "type": "string",
+          "enum": ["dark", "light"]
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "userId",
+        "defaultLength",
+        "defaultTone",
+        "editorFontSize",
+        "showWordCounts",
+        "language",
+        "theme",
+        "createdAt",
+        "updatedAt"
+      ]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": {
+        "$ref": "#/entities/UserProfile"
+      },
+      "description": "Authenticated writer account document containing private PII."
+    },
+    "/users/{userId}/stories/{storyId}": {
+      "schema": {
+        "$ref": "#/entities/Story"
+      },
+      "description": "Saved stories owned by the user."
+    },
+    "/users/{userId}/characters/{characterId}": {
+      "schema": {
+        "$ref": "#/entities/Character"
+      },
+      "description": "Character profiles owned by the user."
+    },
+    "/users/{userId}/plots/{plotId}": {
+      "schema": {
+        "$ref": "#/entities/PlotOutline"
+      },
+      "description": "Six-stage plot outlines owned by the user."
+    },
+    "/users/{userId}/preferences/{prefId}": {
+      "schema": {
+        "$ref": "#/entities/UserPreferences"
+      },
+      "description": "User workspace preferences (language, theme, typography, defaults)."
+    }
+  }
+}

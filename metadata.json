@@ -1,0 +1,6 @@
+{
+  "name": "StoryWeave",
+  "description": "Your Imagination. Our Intelligence. Infinite Stories. An AI-powered creative storytelling studio.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

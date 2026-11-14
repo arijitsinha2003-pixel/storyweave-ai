@@ -1,0 +1,334 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Global Safety Net (Default-Deny)
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // --- Global Reusable Primitives ---
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isVerified() {
+      return isSignedIn() && request.auth.token.email_verified == true;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function parentUserExists(userId) {
+      return exists(/databases/$(database)/documents/users/$(userId))
+        || existsAfter(/databases/$(database)/documents/users/$(userId));
+    }
+
+    // --- Validation Blueprints ---
+    function isValidUserProfile(data, userId) {
+      return data.keys().hasAll(['uid', 'email', 'displayName', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['uid', 'email', 'displayName', 'penName', 'photoURL', 'createdAt', 'updatedAt'])
+        && data.uid is string && data.uid == userId && isValidId(data.uid)
+        && data.email is string && data.email.size() >= 3 && data.email.size() <= 254
+        && data.displayName is string && data.displayName.size() >= 1 && data.displayName.size() <= 120
+        && (!('penName' in data) || (data.penName is string && data.penName.size() <= 120))
+        && (!('photoURL' in data) || (data.photoURL is string && data.photoURL.size() <= 1000))
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidStory(data, userId, storyId) {
+      return data.keys().hasAll([
+          'id', 'userId', 'title', 'description', 'genre', 'tone',
+          'writingStyle', 'lengthLabel', 'wordCount', 'narrative',
+          'conflict', 'climax', 'resolution', 'characters', 'createdAt', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'id', 'userId', 'idea', 'title', 'description', 'genre', 'tone',
+          'writingStyle', 'lengthLabel', 'language', 'wordCount', 'narrative',
+          'conflict', 'climax', 'resolution', 'characters', 'characterDetails',
+          'alternativeEndings', 'preferredEndingType', 'coverImage', 'createdAt', 'updatedAt'
+        ])
+        && data.id is string && data.id == storyId && isValidId(data.id)
+        && data.userId is string && data.userId == userId && isValidId(data.userId)
+        && (!('idea' in data) || (data.idea is string && data.idea.size() <= 2000))
+        && data.title is string && data.title.size() >= 1 && data.title.size() <= 240
+        && data.description is string && data.description.size() <= 2000
+        && data.genre is string && data.genre.size() >= 1 && data.genre.size() <= 100
+        && data.tone is string && data.tone.size() >= 1 && data.tone.size() <= 100
+        && data.writingStyle is string && data.writingStyle.size() >= 1 && data.writingStyle.size() <= 100
+        && data.lengthLabel is string && data.lengthLabel.size() >= 1 && data.lengthLabel.size() <= 60
+        && (!('language' in data) || (data.language is string && data.language.size() <= 10 && data.language in ['en', 'hi', 'bn', 'ta', 'mr', 'te']))
+        && data.wordCount is number && data.wordCount >= 0 && data.wordCount <= 500000
+        && data.narrative is string && data.narrative.size() <= 100000
+        && data.conflict is string && data.conflict.size() <= 4000
+        && data.climax is string && data.climax.size() <= 4000
+        && data.resolution is string && data.resolution.size() <= 4000
+        && data.characters is list && data.characters.size() <= 20
+        && (data.characters.size() == 0 || data.characters[0] is string)
+        && (!('characterDetails' in data) || (data.characterDetails is list && data.characterDetails.size() <= 20 && (data.characterDetails.size() == 0 || data.characterDetails[0] is map)))
+        && (!('alternativeEndings' in data) || (data.alternativeEndings is list && data.alternativeEndings.size() <= 6 && (data.alternativeEndings.size() == 0 || data.alternativeEndings[0] is map)))
+        && (!('preferredEndingType' in data) || (data.preferredEndingType is string && data.preferredEndingType.size() <= 40 && data.preferredEndingType in ['Happy Ending', 'Sad Ending', 'Unexpected Twist', 'Open Ending']))
+        && (!('coverImage' in data) || (data.coverImage is string && data.coverImage.size() <= 1000))
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidCharacter(data, userId, characterId) {
+      return data.keys().hasAll([
+          'id', 'userId', 'name', 'role', 'personality',
+          'background', 'strengths', 'weaknesses', 'createdAt', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'id', 'userId', 'name', 'role', 'personality',
+          'background', 'strengths', 'weaknesses', 'linkedStoryId', 'createdAt', 'updatedAt'
+        ])
+        && data.id is string && data.id == characterId && isValidId(data.id)
+        && data.userId is string && data.userId == userId && isValidId(data.userId)
+        && data.name is string && data.name.size() >= 1 && data.name.size() <= 160
+        && data.role is string && data.role.size() <= 160
+        && data.personality is string && data.personality.size() <= 3000
+        && data.background is string && data.background.size() <= 5000
+        && data.strengths is list && data.strengths.size() <= 15
+        && (data.strengths.size() == 0 || data.strengths[0] is string)
+        && data.weaknesses is list && data.weaknesses.size() <= 15
+        && (data.weaknesses.size() == 0 || data.weaknesses[0] is string)
+        && (!('linkedStoryId' in data) || (data.linkedStoryId is string && data.linkedStoryId.size() <= 128))
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidPlot(data, userId, plotId) {
+      return data.keys().hasAll([
+          'id', 'userId', 'title', 'premise', 'characterNames',
+          'beats', 'chapters', 'createdAt', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'id', 'userId', 'title', 'premise', 'linkedStoryId',
+          'characterNames', 'beats', 'chapters', 'createdAt', 'updatedAt'
+        ])
+        && data.id is string && data.id == plotId && isValidId(data.id)
+        && data.userId is string && data.userId == userId && isValidId(data.userId)
+        && data.title is string && data.title.size() >= 1 && data.title.size() <= 240
+        && data.premise is string && data.premise.size() <= 4000
+        && (!('linkedStoryId' in data) || (data.linkedStoryId is string && data.linkedStoryId.size() <= 128))
+        && data.characterNames is list && data.characterNames.size() <= 20
+        && (data.characterNames.size() == 0 || data.characterNames[0] is string)
+        && data.beats is list && data.beats.size() <= 10
+        && (data.beats.size() == 0 || data.beats[0] is map)
+        && data.chapters is list && data.chapters.size() <= 25
+        && (data.chapters.size() == 0 || data.chapters[0] is map)
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidPreferences(data, userId) {
+      return data.keys().hasAll([
+          'userId', 'defaultLength', 'defaultTone', 'editorFontSize',
+          'showWordCounts', 'language', 'theme', 'createdAt', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'userId', 'defaultLength', 'defaultTone', 'editorFontSize',
+          'showWordCounts', 'language', 'theme', 'createdAt', 'updatedAt'
+        ])
+        && data.userId is string && data.userId == userId && isValidId(data.userId)
+        && data.defaultLength is string && data.defaultLength.size() <= 20 && data.defaultLength in ['Short', 'Medium', 'Long']
+        && data.defaultTone is string && data.defaultTone.size() >= 1 && data.defaultTone.size() <= 100
+        && data.editorFontSize is string && data.editorFontSize.size() <= 20 && data.editorFontSize in ['Compact', 'Standard', 'Relaxed']
+        && data.showWordCounts is bool
+        && data.language is string && data.language.size() <= 10 && data.language in ['en', 'hi', 'bn', 'ta', 'mr', 'te']
+        && data.theme is string && data.theme.size() <= 10 && data.theme in ['dark', 'light']
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    // --- Collection Rules ---
+    match /users/{userId} {
+      // Strictly isolate PII to the authenticated owner; forbid listing all users.
+      allow get: if isOwner(userId) && isValidId(userId);
+      allow list: if false;
+
+      allow create: if isVerified()
+        && isOwner(userId)
+        && isValidId(userId)
+        && isValidUserProfile(incoming(), userId)
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+
+      allow update: if isVerified()
+        && isOwner(userId)
+        && isValidId(userId)
+        && isValidUserProfile(incoming(), userId)
+        && incoming().uid == existing().uid
+        && incoming().email == existing().email
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'penName', 'photoURL', 'updatedAt']);
+
+      allow delete: if isVerified() && isOwner(userId) && isValidId(userId);
+
+      // User-owned Stories
+      match /stories/{storyId} {
+        allow get: if isOwner(userId) && isValidId(userId) && isValidId(storyId);
+        allow list: if isOwner(userId) && existing().userId == request.auth.uid;
+
+        allow create: if isVerified()
+          && isOwner(userId)
+          && isValidId(userId)
+          && isValidId(storyId)
+          && isValidStory(incoming(), userId, storyId)
+          && incoming().createdAt == request.time
+          && incoming().updatedAt == request.time
+          && parentUserExists(userId);
+
+        allow update: if isVerified()
+          && isOwner(userId)
+          && isValidId(userId)
+          && isValidId(storyId)
+          && isValidStory(incoming(), userId, storyId)
+          && incoming().id == existing().id
+          && incoming().userId == existing().userId
+          && incoming().createdAt == existing().createdAt
+          && incoming().updatedAt == request.time
+          && (
+            // Action 1: Story editorial / Co-writer update
+            incoming().diff(existing()).affectedKeys().hasOnly([
+              'idea', 'title', 'description', 'genre', 'tone', 'writingStyle',
+              'lengthLabel', 'language', 'wordCount', 'narrative', 'conflict',
+              'climax', 'resolution', 'characters', 'characterDetails', 'coverImage', 'updatedAt'
+            ]) ||
+            // Action 2: Alternative endings branching update
+            incoming().diff(existing()).affectedKeys().hasOnly([
+              'alternativeEndings', 'preferredEndingType', 'resolution', 'narrative', 'wordCount', 'updatedAt'
+            ])
+          )
+          && parentUserExists(userId);
+
+        allow delete: if isVerified()
+          && isOwner(userId)
+          && isValidId(userId)
+          && isValidId(storyId)
+          && parentUserExists(userId);
+      }
+
+      // User-owned Characters
+      match /characters/{characterId} {
+        allow get: if isOwner(userId) && isValidId(userId) && isValidId(characterId);
+        allow list: if isOwner(userId) && existing().userId == request.auth.uid;
+
+        allow create: if isVerified()
+          && isOwner(userId)
+          && isValidId(userId)
+          && isValidId(characterId)
+          && isValidCharacter(incoming(), userId, characterId)
+          && incoming().createdAt == request.time
+          && incoming().updatedAt == request.time
+          && parentUserExists(userId);
+
+        allow update: if isVerified()
+          && isOwner(userId)
+          && isValidId(userId)
+          && isValidId(characterId)
+          && isValidCharacter(incoming(), userId, characterId)
+          && incoming().id == existing().id
+          && incoming().userId == existing().userId
+          && incoming().createdAt == existing().createdAt
+          && incoming().updatedAt == request.time
+          && incoming().diff(existing()).affectedKeys().hasOnly([
+            'name', 'role', 'personality', 'background', 'strengths',
+            'weaknesses', 'linkedStoryId', 'updatedAt'
+          ])
+          && parentUserExists(userId);
+
+        allow delete: if isVerified()
+          && isOwner(userId)
+          && isValidId(userId)
+          && isValidId(characterId)
+          && parentUserExists(userId);
+      }
+
+      // User-owned Plot Outlines
+      match /plots/{plotId} {
+        allow get: if isOwner(userId) && isValidId(userId) && isValidId(plotId);
+        allow list: if isOwner(userId) && existing().userId == request.auth.uid;
+
+        allow create: if isVerified()
+          && isOwner(userId)
+          && isValidId(userId)
+          && isValidId(plotId)
+          && isValidPlot(incoming(), userId, plotId)
+          && incoming().createdAt == request.time
+          && incoming().updatedAt == request.time
+          && parentUserExists(userId);
+
+        allow update: if isVerified()
+          && isOwner(userId)
+          && isValidId(userId)
+          && isValidId(plotId)
+          && isValidPlot(incoming(), userId, plotId)
+          && incoming().id == existing().id
+          && incoming().userId == existing().userId
+          && incoming().createdAt == existing().createdAt
+          && incoming().updatedAt == request.time
+          && incoming().diff(existing()).affectedKeys().hasOnly([
+            'title', 'premise', 'linkedStoryId', 'characterNames',
+            'beats', 'chapters', 'updatedAt'
+          ])
+          && parentUserExists(userId);
+
+        allow delete: if isVerified()
+          && isOwner(userId)
+          && isValidId(userId)
+          && isValidId(plotId)
+          && parentUserExists(userId);
+      }
+
+      // User-owned Preferences
+      match /preferences/{prefId} {
+        allow get: if isOwner(userId) && isValidId(userId) && isValidId(prefId);
+        allow list: if isOwner(userId) && existing().userId == request.auth.uid;
+
+        allow create: if isVerified()
+          && isOwner(userId)
+          && isValidId(userId)
+          && isValidId(prefId)
+          && isValidPreferences(incoming(), userId)
+          && incoming().createdAt == request.time
+          && incoming().updatedAt == request.time
+          && parentUserExists(userId);
+
+        allow update: if isVerified()
+          && isOwner(userId)
+          && isValidId(userId)
+          && isValidId(prefId)
+          && isValidPreferences(incoming(), userId)
+          && incoming().userId == existing().userId
+          && incoming().createdAt == existing().createdAt
+          && incoming().updatedAt == request.time
+          && incoming().diff(existing()).affectedKeys().hasOnly([
+            'defaultLength', 'defaultTone', 'editorFontSize',
+            'showWordCounts', 'language', 'theme', 'updatedAt'
+          ])
+          && parentUserExists(userId);
+
+        allow delete: if isVerified()
+          && isOwner(userId)
+          && isValidId(userId)
+          && isValidId(prefId)
+          && parentUserExists(userId);
+      }
+    }
+  }
+}
