@@ -242,17 +242,26 @@ export function AiCoWriter({
           }),
         };
 
-    await onSaveStory(updatedStory);
-    setLinkedStoryId(updatedStory.id);
-    setSavedNotice(true);
-    setTimeout(() => setSavedNotice(false), 2500);
+    setError(null);
+    try {
+      await onSaveStory(updatedStory);
+      setLinkedStoryId(updatedStory.id);
+      setSavedNotice(true);
+      setTimeout(() => setSavedNotice(false), 2500);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not save manuscript.');
+    }
   };
 
   const handleCopy = async () => {
     if (!text.trim()) return;
-    await navigator.clipboard.writeText(`${manuscriptTitle}\n\n${text}`);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+    try {
+      await navigator.clipboard.writeText(`${manuscriptTitle}\n\n${text}`);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      setError('Clipboard copy failed. You can select and copy your manuscript directly.');
+    }
   };
 
   const tools: {

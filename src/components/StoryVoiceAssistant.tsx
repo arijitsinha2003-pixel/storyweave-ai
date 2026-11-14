@@ -111,6 +111,9 @@ export function StoryVoiceAssistant({
   const playbackRunIdRef = useRef(0);
   const speedRef = useRef(speed);
   speedRef.current = speed;
+  const playChunkRef = useRef<
+    ((chunkIdx: number, overrideEngine?: 'ai' | 'browser', overrideLang?: AppLanguage, overrideVoice?: NarratorVoice) => Promise<void>) | null
+  >(null);
 
   // Keep default voice language synced when global app language changes while idle
   useEffect(() => {
@@ -160,7 +163,13 @@ export function StoryVoiceAssistant({
   }, [speed]);
 
   const playWithBrowserSpeech = useCallback(
-    (spokenText: string, chunkIdx: number, runId: number, customNotice?: string) => {
+    (
+      spokenText: string,
+      chunkIdx: number,
+      runId: number,
+      chosenLang: AppLanguage,
+      customNotice?: string
+    ) => {
       if (
         typeof window === 'undefined' ||
         !('speechSynthesis' in window) ||
@@ -172,7 +181,8 @@ export function StoryVoiceAssistant({
       }
 
       window.speechSynthesis.cancel();
-      const bcpTag = BCP47_MAP[voiceLanguage] || 'en-IN';
+      window.speechSynthesis.resume();
+      const bcpTag = BCP47_MAP[chosenLang] || 'en-IN';
       const baseLang = bcpTag.split('-')[0];
       const voices = window.speechSynthesis.getVoices();
       const matchedVoice =
@@ -189,7 +199,7 @@ export function StoryVoiceAssistant({
         if (playbackRunIdRef.current !== runId) return;
         const nextIdx = chunkIdx + 1;
         if (nextIdx < chunks.length) {
-          void playChunk(nextIdx);
+          void playChunkRef.current?.(nextIdx, 'browser', chosenLang);
         } else {
           setStatus('idle');
           setCurrentChunkIdx(0);
@@ -207,17 +217,22 @@ export function StoryVoiceAssistant({
       setStatus('playing');
       window.speechSynthesis.speak(utterance);
     },
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [voiceLanguage, chunks.length]
+    [chunks.length]
   );
 
   const playChunk = useCallback(
-    async (chunkIdx: number, overrideEngine?: 'ai' | 'browser', overrideLang?: AppLanguage) => {
+    async (
+      chunkIdx: number,
+      overrideEngine?: 'ai' | 'browser',
+      overrideLang?: AppLanguage,
+      overrideVoice?: NarratorVoice
+    ) => {
       if (chunks.length === 0) return;
       const safeIdx = Math.max(0, Math.min(chunkIdx, chunks.length - 1));
       const chunkText = chunks[safeIdx];
       const chosenLang = overrideLang ?? voiceLanguage;
       const chosenEngine = overrideEngine ?? engineMode;
+      const chosenVoice = overrideVoice ?? narratorVoice;
 
       stopAllAudio();
       const runId = ++playbackRunIdRef.current;
@@ -225,10 +240,17 @@ export function StoryVoiceAssistant({
       setNotice(null);
 
       // Include title only on the very first part
-      const textPayload = safeIdx === 0 && title.trim() ? `${title.trim()}.\n\n${chunkText}` : chunkText;
+      const textPayload =
+        safeIdx === 0 && title.trim() ? `${title.trim()}.\n\n${chunkText}` : chunkText;
 
       if (chosenEngine === 'browser') {
-        playWithBrowserSpeech(textPayload, safeIdx, runId, t.voice.browserFallbackNote);
+        playWithBrowserSpeech(
+          textPayload,
+          safeIdx,
+          runId,
+          chosenLang,
+          t.voice.browserFallbackNote
+        );
         return;
       }
 
@@ -243,7 +265,7 @@ export function StoryVoiceAssistant({
             title,
             targetLanguage: chosenLang,
             sourceLanguage: sourceLanguage ?? appLanguage,
-            voiceName: narratorVoice,
+            voiceName: chosenVoice,
             tone,
           }),
         });
@@ -264,7 +286,7 @@ export function StoryVoiceAssistant({
             typeof data?.error === 'string' && data.error.trim()
               ? data.error
               : t.voice.browserFallbackNote;
-          playWithBrowserSpeech(fallbackText, safeIdx, runId, reason);
+          playWithBrowserSpeech(fallbackText, safeIdx, runId, chosenLang, reason);
           return;
         }
 
@@ -292,7 +314,7 @@ export function StoryVoiceAssistant({
           if (playbackRunIdRef.current !== runId) return;
           const nextIdx = safeIdx + 1;
           if (nextIdx < chunks.length) {
-            void playChunk(nextIdx, chosenEngine, chosenLang);
+            void playChunkRef.current?.(nextIdx, chosenEngine, chosenLang, chosenVoice);
           } else {
             setStatus('idle');
             setCurrentChunkIdx(0);
@@ -305,6 +327,7 @@ export function StoryVoiceAssistant({
             data.spokenText || textPayload,
             safeIdx,
             runId,
+            chosenLang,
             t.voice.browserFallbackNote
           );
         };
@@ -314,7 +337,13 @@ export function StoryVoiceAssistant({
         await audio.play();
       } catch {
         if (playbackRunIdRef.current !== runId) return;
-        playWithBrowserSpeech(textPayload, safeIdx, runId, t.voice.browserFallbackNote);
+        playWithBrowserSpeech(
+          textPayload,
+          safeIdx,
+          runId,
+          chosenLang,
+          t.voice.browserFallbackNote
+        );
       }
     },
     [
@@ -331,6 +360,8 @@ export function StoryVoiceAssistant({
       t.voice.browserFallbackNote,
     ]
   );
+
+  playChunkRef.current = playChunk;
 
   const handlePlayPause = () => {
     if (status === 'loading') return;
@@ -524,9 +555,10 @@ export function StoryVoiceAssistant({
             <select
               value={narratorVoice}
               onChange={(e) => {
-                setNarratorVoice(e.target.value as NarratorVoice);
+                const nextVoice = e.target.value as NarratorVoice;
+                setNarratorVoice(nextVoice);
                 if (status === 'playing' || status === 'paused') {
-                  void playChunk(currentChunkIdx);
+                  void playChunk(currentChunkIdx, engineMode, voiceLanguage, nextVoice);
                 }
               }}
               aria-label={t.voice.narratorVoice}

@@ -22,7 +22,7 @@ import {
 interface StoryGeneratorProps {
   preferences: WorkspacePreferences;
   activeStory: StoryRecord | null;
-  onSaveStory: (story: StoryRecord) => void;
+  onSaveStory: (story: StoryRecord) => Promise<void> | void;
   onOpenLibrary: () => void;
 }
 
@@ -162,6 +162,7 @@ export function StoryGenerator({
         resolution: generated.resolution,
         characters: charDetails.map((c) => c.name),
         characterDetails: charDetails,
+        coverImage: draft?.coverImage,
         updatedAt: new Date().toLocaleDateString('en-IN', {
           month: 'short',
           day: 'numeric',
@@ -202,8 +203,9 @@ export function StoryGenerator({
     }
   };
 
-  const handleSave = () => {
+  const handleSave = async () => {
     if (!draft) return;
+    setError(null);
     const updatedStory: StoryRecord = {
       ...draft,
       wordCount: computeWordCount(draft.narrative),
@@ -214,9 +216,13 @@ export function StoryGenerator({
       }),
     };
     setDraft(updatedStory);
-    onSaveStory(updatedStory);
-    setSavedNotice(true);
-    setTimeout(() => setSavedNotice(false), 3000);
+    try {
+      await onSaveStory(updatedStory);
+      setSavedNotice(true);
+      setTimeout(() => setSavedNotice(false), 3000);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Unable to save story right now.');
+    }
   };
 
   const updateDraftField = (

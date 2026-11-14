@@ -183,10 +183,15 @@ export function CharacterStudio({
       }),
     };
 
-    await onSaveCharacter(profile);
-    setSavedNotice(true);
-    setTimeout(() => setSavedNotice(false), 2500);
-    resetForm();
+    setError(null);
+    try {
+      await onSaveCharacter(profile);
+      setSavedNotice(true);
+      setTimeout(() => setSavedNotice(false), 2500);
+      resetForm();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not save character.');
+    }
   };
 
   return (
@@ -605,9 +610,15 @@ export function CharacterStudio({
                     {confirmDeleteId === character.id ? (
                       <button
                         type="button"
-                        onClick={() => {
-                          onDeleteCharacter(character.id);
+                        onClick={async () => {
                           setConfirmDeleteId(null);
+                          try {
+                            await onDeleteCharacter(character.id);
+                          } catch (err) {
+                            setError(
+                              err instanceof Error ? err.message : 'Could not delete character.'
+                            );
+                          }
                         }}
                         className="px-2.5 py-1.5 rounded-lg text-xs font-semibold text-red-700 dark:text-red-200 bg-red-500/15 border border-red-500/40 cursor-pointer"
                       >

@@ -200,7 +200,12 @@ async function startServer() {
   app.post("/api/stories", async (req, res) => {
     try {
       const story = req.body as StoredStory;
-      if (!story?.id || !story?.title) {
+      if (
+        typeof story?.id !== "string" ||
+        !story.id.trim() ||
+        typeof story?.title !== "string" ||
+        !story.title.trim()
+      ) {
         return res.status(400).json({ error: "Invalid story payload." });
       }
       const db = await readWorkspaceDb();
@@ -233,7 +238,12 @@ async function startServer() {
   app.post("/api/characters", async (req, res) => {
     try {
       const character = req.body as StoredCharacter;
-      if (!character?.id || !character?.name) {
+      if (
+        typeof character?.id !== "string" ||
+        !character.id.trim() ||
+        typeof character?.name !== "string" ||
+        !character.name.trim()
+      ) {
         return res.status(400).json({ error: "Invalid character payload." });
       }
       const db = await readWorkspaceDb();
@@ -266,7 +276,12 @@ async function startServer() {
   app.post("/api/plots", async (req, res) => {
     try {
       const plot = req.body as StoredPlotOutline;
-      if (!plot?.id || !plot?.title) {
+      if (
+        typeof plot?.id !== "string" ||
+        !plot.id.trim() ||
+        typeof plot?.title !== "string" ||
+        !plot.title.trim()
+      ) {
         return res.status(400).json({ error: "Invalid plot payload." });
       }
       const db = await readWorkspaceDb();
@@ -298,9 +313,39 @@ async function startServer() {
 
   app.put("/api/preferences", async (req, res) => {
     try {
-      const prefs = req.body as StoredPreferences;
+      const incoming = (req.body ?? {}) as Partial<StoredPreferences>;
       const db = await readWorkspaceDb();
-      db.preferences = prefs;
+      db.preferences = {
+        ...db.preferences,
+        defaultLength:
+          incoming.defaultLength === "Short" ||
+          incoming.defaultLength === "Medium" ||
+          incoming.defaultLength === "Long"
+            ? incoming.defaultLength
+            : db.preferences.defaultLength,
+        defaultTone:
+          typeof incoming.defaultTone === "string" && incoming.defaultTone.trim()
+            ? incoming.defaultTone.trim()
+            : db.preferences.defaultTone,
+        editorFontSize:
+          incoming.editorFontSize === "Compact" ||
+          incoming.editorFontSize === "Standard" ||
+          incoming.editorFontSize === "Relaxed"
+            ? incoming.editorFontSize
+            : db.preferences.editorFontSize,
+        showWordCounts:
+          typeof incoming.showWordCounts === "boolean"
+            ? incoming.showWordCounts
+            : db.preferences.showWordCounts,
+        language:
+          incoming.language && LANGUAGE_MAP[incoming.language]
+            ? incoming.language
+            : db.preferences.language,
+        theme:
+          incoming.theme === "light" || incoming.theme === "dark"
+            ? incoming.theme
+            : db.preferences.theme,
+      };
       await writeWorkspaceDb(db);
       return res.json({ preferences: db.preferences });
     } catch (error) {
@@ -409,13 +454,20 @@ async function startServer() {
         });
       }
 
+      const rawChars = Array.isArray(parsed.characters) ? parsed.characters : [];
+      const sanitizedChars = rawChars.map((c) => ({
+        name: String((c as { name?: unknown })?.name ?? "Character").trim(),
+        role: String((c as { role?: unknown })?.role ?? "Supporting").trim(),
+        trait: String((c as { trait?: unknown })?.trait ?? "").trim(),
+      }));
+
       const wordCount = narrative.split(/\s+/).filter(Boolean).length;
       return res.json({
         story: {
           title: String(parsed.title ?? "Untitled Story").trim(),
           description: String(parsed.description ?? "").trim(),
           narrative,
-          characters: Array.isArray(parsed.characters) ? parsed.characters : [],
+          characters: sanitizedChars,
           conflict: String(parsed.conflict ?? "").trim(),
           climax: String(parsed.climax ?? "").trim(),
           resolution: String(parsed.resolution ?? "").trim(),
@@ -898,12 +950,29 @@ async function startServer() {
       const targetLangInstruction = resolveLanguageInstruction(targetCode);
       const safeVoice = voiceName && allowedVoices.has(voiceName) ? voiceName : "Kore";
 
-      // Detect whether the passage needs translation/adaptation into the requested voice language
-      const hasIndicScript = /[\u0900-\u0D7F]/.test(cleanText);
-      const needsAdaptation =
-        (sourceCode && sourceCode !== targetCode) ||
-        (targetCode !== "en" && !hasIndicScript) ||
-        (targetCode === "en" && hasIndicScript);
+      // Script-aware detection for whether the passage needs translation/adaptation
+      const hasDevanagari = /[\u0900-\u097F]/.test(cleanText);
+      const hasBengali = /[\u0980-\u09FF]/.test(cleanText);
+      const hasTamil = /[\u0B80-\u0BFF]/.test(cleanText);
+      const hasTelugu = /[\u0C00-\u0C7F]/.test(cleanText);
+      const hasAnyIndic = /[\u0900-\u0D7F]/.test(cleanText);
+
+      let needsAdaptation = false;
+      if (targetCode === "en") {
+        needsAdaptation = hasAnyIndic;
+      } else if (targetCode === "bn") {
+        needsAdaptation = !hasBengali;
+      } else if (targetCode === "ta") {
+        needsAdaptation = !hasTamil;
+      } else if (targetCode === "te") {
+        needsAdaptation = !hasTelugu;
+      } else if (targetCode === "hi" || targetCode === "mr") {
+        needsAdaptation =
+          !hasDevanagari ||
+          ((sourceCode === "hi" || sourceCode === "mr") && sourceCode !== targetCode);
+      } else if (sourceCode && sourceCode !== targetCode) {
+        needsAdaptation = true;
+      }
 
       preparedSpokenText = cleanText;
 
@@ -969,8 +1038,11 @@ async function startServer() {
         },
       });
 
-      const base64Audio =
-        ttsResponse.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
+      const audioPart = ttsResponse.candidates?.[0]?.content?.parts?.find(
+        (part) => Boolean(part?.inlineData?.data)
+      );
+      const base64Audio = audioPart?.inlineData?.data;
+      const mimeType = audioPart?.inlineData?.mimeType || "audio/wav";
 
       if (!base64Audio) {
         return res.status(502).json({
@@ -982,7 +1054,7 @@ async function startServer() {
 
       return res.json({
         audioBase64: base64Audio,
-        mimeType: "audio/wav",
+        mimeType,
         spokenText: preparedSpokenText,
         translated: wasTranslated,
         voiceName: safeVoice,

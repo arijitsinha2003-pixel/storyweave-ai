@@ -196,11 +196,16 @@ export function PlotBuilder({
         year: 'numeric',
       }),
     };
-    setSelectedPlotId(outline.id);
-    setTitle(cleanTitle);
-    await onSavePlot(outline);
-    setSavedNotice(true);
-    setTimeout(() => setSavedNotice(false), 2500);
+    setError(null);
+    try {
+      await onSavePlot(outline);
+      setSelectedPlotId(outline.id);
+      setTitle(cleanTitle);
+      setSavedNotice(true);
+      setTimeout(() => setSavedNotice(false), 2500);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not save plot outline.');
+    }
   };
 
   const updateBeat = (id: string, field: 'title' | 'summary', value: string) => {
@@ -369,9 +374,13 @@ export function PlotBuilder({
                 </button>
                 <button
                   type="button"
-                  onClick={() => {
-                    onDeletePlot(p.id);
-                    if (selectedPlotId === p.id) handleNewBlankOutline();
+                  onClick={async () => {
+                    try {
+                      await onDeletePlot(p.id);
+                      if (selectedPlotId === p.id) handleNewBlankOutline();
+                    } catch (err) {
+                      setError(err instanceof Error ? err.message : 'Could not delete plot outline.');
+                    }
                   }}
                   aria-label={`Delete ${p.title}`}
                   className="w-7 h-7 rounded-lg text-[var(--text-subtle)] hover:text-red-500 dark:hover:text-red-300 flex items-center justify-center cursor-pointer"

@@ -5,7 +5,7 @@
 
 import { useEffect, useState } from 'react';
 import type { User } from 'firebase/auth';
-import { Globe, Menu, Moon, Plus, Sun, X } from 'lucide-react';
+import { AlertCircle, Globe, Menu, Moon, Plus, Sun, X } from 'lucide-react';
 import { LandingPage } from './components/LandingPage';
 import { AuthGate } from './components/AuthGate';
 import { Sidebar } from './components/Sidebar';
@@ -91,6 +91,7 @@ export default function App() {
   const [inspectedStory, setInspectedStory] = useState<StoryRecord | null>(null);
 
   const [preferences, setPreferences] = useState<WorkspacePreferences>(getInitialPreferences);
+  const [workspaceError, setWorkspaceError] = useState<string | null>(null);
 
   const t = TRANSLATIONS[preferences.language];
 
@@ -134,6 +135,9 @@ export default function App() {
           }
         } catch (err) {
           console.error('Failed to sync writer profile:', err);
+          if (active) {
+            setWorkspaceError('Unable to sync your writer profile with cloud storage right now.');
+          }
         }
       } else {
         setUserProfile(null);
@@ -160,7 +164,10 @@ export default function App() {
             ...prev,
             ...prefs,
           })),
-        onError: (err) => console.error('Workspace sync error:', err),
+        onError: (err) => {
+          console.error('Workspace sync error:', err);
+          setWorkspaceError('Cloud workspace sync encountered a permission or network issue.');
+        },
       });
       return () => unsubscribeWorkspace();
     }
@@ -208,6 +215,7 @@ export default function App() {
   };
 
   const handleSaveStory = async (story: StoryRecord) => {
+    setWorkspaceError(null);
     setStories((prev) => {
       const exists = prev.some((item) => item.id === story.id);
       return exists
@@ -217,7 +225,13 @@ export default function App() {
     setActiveGeneratorStory(story);
 
     if (authUser) {
-      await saveUserStory(authUser.uid, story);
+      try {
+        await saveUserStory(authUser.uid, story);
+      } catch (err) {
+        const message = 'Unable to save story to cloud workspace. Please check your connection and try again.';
+        setWorkspaceError(message);
+        throw err instanceof Error ? err : new Error(message);
+      }
       return;
     }
 
@@ -227,33 +241,51 @@ export default function App() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(story),
       });
-      if (res.ok) {
-        const data = await res.json();
-        if (Array.isArray(data.stories)) setStories(data.stories);
+      if (!res.ok) {
+        const errData = await res.json().catch(() => null);
+        throw new Error(errData?.error || 'Unable to save story.');
       }
-    } catch {
-      // Optimistic state already updated
+      const data = await res.json();
+      if (Array.isArray(data.stories)) setStories(data.stories);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Unable to save story.';
+      setWorkspaceError(message);
+      throw err instanceof Error ? err : new Error(message);
     }
   };
 
   const handleDeleteStory = async (id: string) => {
+    setWorkspaceError(null);
+    const previousStories = stories;
     setStories((prev) => prev.filter((item) => item.id !== id));
     if (activeGeneratorStory?.id === id) setActiveGeneratorStory(null);
     if (activeCoWriterStory?.id === id) setActiveCoWriterStory(null);
 
     if (authUser) {
-      await deleteUserStory(authUser.uid, id);
+      try {
+        await deleteUserStory(authUser.uid, id);
+      } catch (err) {
+        setStories(previousStories);
+        setWorkspaceError('Unable to delete story from cloud workspace.');
+        throw err;
+      }
       return;
     }
 
     try {
-      await fetch(`/api/stories/${encodeURIComponent(id)}`, { method: 'DELETE' });
-    } catch {
-      // Ignore network error
+      const res = await fetch(`/api/stories/${encodeURIComponent(id)}`, { method: 'DELETE' });
+      if (!res.ok) {
+        throw new Error('Unable to delete story.');
+      }
+    } catch (err) {
+      setStories(previousStories);
+      setWorkspaceError('Unable to delete story.');
+      throw err;
     }
   };
 
   const handleSaveCharacter = async (character: CharacterProfile) => {
+    setWorkspaceError(null);
     setCharacters((prev) => {
       const exists = prev.some((c) => c.id === character.id);
       return exists
@@ -262,7 +294,13 @@ export default function App() {
     });
 
     if (authUser) {
-      await saveUserCharacter(authUser.uid, character);
+      try {
+        await saveUserCharacter(authUser.uid, character);
+      } catch (err) {
+        const message = 'Unable to save character profile to cloud workspace.';
+        setWorkspaceError(message);
+        throw err instanceof Error ? err : new Error(message);
+      }
       return;
     }
 
@@ -272,31 +310,49 @@ export default function App() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(character),
       });
-      if (res.ok) {
-        const data = await res.json();
-        if (Array.isArray(data.characters)) setCharacters(data.characters);
+      if (!res.ok) {
+        const errData = await res.json().catch(() => null);
+        throw new Error(errData?.error || 'Unable to save character.');
       }
-    } catch {
-      // Optimistic state already updated
+      const data = await res.json();
+      if (Array.isArray(data.characters)) setCharacters(data.characters);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Unable to save character.';
+      setWorkspaceError(message);
+      throw err instanceof Error ? err : new Error(message);
     }
   };
 
   const handleDeleteCharacter = async (id: string) => {
+    setWorkspaceError(null);
+    const previousCharacters = characters;
     setCharacters((prev) => prev.filter((c) => c.id !== id));
 
     if (authUser) {
-      await deleteUserCharacter(authUser.uid, id);
+      try {
+        await deleteUserCharacter(authUser.uid, id);
+      } catch (err) {
+        setCharacters(previousCharacters);
+        setWorkspaceError('Unable to delete character from cloud workspace.');
+        throw err;
+      }
       return;
     }
 
     try {
-      await fetch(`/api/characters/${encodeURIComponent(id)}`, { method: 'DELETE' });
-    } catch {
-      // Ignore network error
+      const res = await fetch(`/api/characters/${encodeURIComponent(id)}`, { method: 'DELETE' });
+      if (!res.ok) {
+        throw new Error('Unable to delete character.');
+      }
+    } catch (err) {
+      setCharacters(previousCharacters);
+      setWorkspaceError('Unable to delete character.');
+      throw err;
     }
   };
 
   const handleSavePlot = async (plot: PlotOutline) => {
+    setWorkspaceError(null);
     setPlots((prev) => {
       const exists = prev.some((p) => p.id === plot.id);
       return exists
@@ -305,7 +361,13 @@ export default function App() {
     });
 
     if (authUser) {
-      await saveUserPlot(authUser.uid, plot);
+      try {
+        await saveUserPlot(authUser.uid, plot);
+      } catch (err) {
+        const message = 'Unable to save plot outline to cloud workspace.';
+        setWorkspaceError(message);
+        throw err instanceof Error ? err : new Error(message);
+      }
       return;
     }
 
@@ -315,35 +377,58 @@ export default function App() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(plot),
       });
-      if (res.ok) {
-        const data = await res.json();
-        if (Array.isArray(data.plots)) setPlots(data.plots);
+      if (!res.ok) {
+        const errData = await res.json().catch(() => null);
+        throw new Error(errData?.error || 'Unable to save plot.');
       }
-    } catch {
-      // Optimistic state already updated
+      const data = await res.json();
+      if (Array.isArray(data.plots)) setPlots(data.plots);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Unable to save plot.';
+      setWorkspaceError(message);
+      throw err instanceof Error ? err : new Error(message);
     }
   };
 
   const handleDeletePlot = async (id: string) => {
+    setWorkspaceError(null);
+    const previousPlots = plots;
     setPlots((prev) => prev.filter((p) => p.id !== id));
 
     if (authUser) {
-      await deleteUserPlot(authUser.uid, id);
+      try {
+        await deleteUserPlot(authUser.uid, id);
+      } catch (err) {
+        setPlots(previousPlots);
+        setWorkspaceError('Unable to delete plot from cloud workspace.');
+        throw err;
+      }
       return;
     }
 
     try {
-      await fetch(`/api/plots/${encodeURIComponent(id)}`, { method: 'DELETE' });
-    } catch {
-      // Ignore network error
+      const res = await fetch(`/api/plots/${encodeURIComponent(id)}`, { method: 'DELETE' });
+      if (!res.ok) {
+        throw new Error('Unable to delete plot.');
+      }
+    } catch (err) {
+      setPlots(previousPlots);
+      setWorkspaceError('Unable to delete plot.');
+      throw err;
     }
   };
 
   const handleUpdatePreferences = async (next: WorkspacePreferences) => {
+    setWorkspaceError(null);
     setPreferences(next);
 
     if (authUser) {
-      await saveUserPreferences(authUser.uid, next);
+      try {
+        await saveUserPreferences(authUser.uid, next);
+      } catch (err) {
+        console.error('Failed to persist preferences to Firestore:', err);
+        setWorkspaceError('Preferences applied locally, but cloud preference sync failed.');
+      }
       return;
     }
 
@@ -354,17 +439,17 @@ export default function App() {
         body: JSON.stringify(next),
       });
     } catch {
-      // Ignore network error
+      // LocalStorage already stores preferences
     }
   };
 
   const handleChangeLanguage = (language: AppLanguage) => {
-    handleUpdatePreferences({ ...preferences, language });
+    void handleUpdatePreferences({ ...preferences, language });
   };
 
   const handleToggleTheme = () => {
     const nextTheme: ThemeMode = preferences.theme === 'dark' ? 'light' : 'dark';
-    handleUpdatePreferences({ ...preferences, theme: nextTheme });
+    void handleUpdatePreferences({ ...preferences, theme: nextTheme });
   };
 
   const handleOpenInGenerator = (story: StoryRecord) => {
@@ -569,6 +654,25 @@ export default function App() {
 
         {/* Main Workspace Content */}
         <main className="flex-1 p-4 sm:p-8 max-w-7xl w-full mx-auto">
+          {workspaceError && (
+            <div
+              role="alert"
+              className="mb-6 rounded-xl bg-rose-500/10 border border-rose-500/35 px-4 py-3 flex items-center justify-between gap-3 text-xs sm:text-sm text-rose-700 dark:text-rose-200"
+            >
+              <div className="flex items-center gap-2.5 min-w-0">
+                <AlertCircle className="w-4 h-4 shrink-0" />
+                <span>{workspaceError}</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setWorkspaceError(null)}
+                aria-label="Dismiss error"
+                className="w-7 h-7 rounded-lg flex items-center justify-center hover:bg-rose-500/15 cursor-pointer shrink-0"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          )}
           {activeSection === NavSection.Dashboard && (
             <DashboardHome
               language={preferences.language}

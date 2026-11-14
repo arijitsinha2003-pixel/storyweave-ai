@@ -11,6 +11,7 @@ import {
   Timestamp,
   collection,
   deleteDoc,
+  deleteField,
   doc,
   getDoc,
   getDocFromServer,
@@ -168,14 +169,26 @@ function timestampMillis(value: unknown): number {
   return 0;
 }
 
+let pendingAuthContext: {
+  penName?: string;
+  initialPreferences?: WorkspacePreferences;
+} | null = null;
+
+const inFlightProfileEnsures = new Map<string, Promise<UserProfileRecord>>();
+
 export async function signInWithGoogleAccount(
   penName?: string,
   initialPreferences?: WorkspacePreferences
 ): Promise<{ user: User; profile: UserProfileRecord }> {
-  const result = await signInWithPopup(auth, googleProvider);
-  const user = result.user;
-  const profile = await ensureUserProfile(user, penName, initialPreferences);
-  return { user, profile };
+  pendingAuthContext = { penName, initialPreferences };
+  try {
+    const result = await signInWithPopup(auth, googleProvider);
+    const user = result.user;
+    const profile = await ensureUserProfile(user, penName, initialPreferences);
+    return { user, profile };
+  } finally {
+    pendingAuthContext = null;
+  }
 }
 
 export async function signOutAccount(): Promise<void> {
@@ -191,75 +204,94 @@ export async function ensureUserProfile(
   penName?: string,
   initialPreferences?: WorkspacePreferences
 ): Promise<UserProfileRecord> {
-  const profilePath = `users/${user.uid}`;
-  const profileRef = doc(db, 'users', user.uid);
-  const cleanDisplayName = clampString(
-    user.displayName || user.email?.split('@')[0] || 'StoryWeave Writer',
-    120,
-    'StoryWeave Writer'
-  );
-  const cleanEmail = clampString(user.email || 'writer@storyweave.app', 254);
-  const cleanPhotoUrl = user.photoURL ? clampString(user.photoURL, 1000) : undefined;
-  const cleanPenName = penName?.trim() ? clampString(penName.trim(), 120) : undefined;
+  const effectivePenName = penName ?? pendingAuthContext?.penName;
+  const effectivePrefs = initialPreferences ?? pendingAuthContext?.initialPreferences;
 
-  let existingSnap;
-  try {
-    existingSnap = await getDoc(profileRef);
-  } catch (error) {
-    handleFirestoreError(error, OperationType.GET, profilePath);
+  const existingPromise = inFlightProfileEnsures.get(user.uid);
+  if (existingPromise) {
+    return existingPromise;
   }
 
-  if (!existingSnap.exists()) {
-    const payload: Record<string, unknown> = {
-      uid: user.uid,
-      email: cleanEmail,
-      displayName: cleanDisplayName,
-      createdAt: serverTimestamp(),
-      updatedAt: serverTimestamp(),
-    };
-    if (cleanPenName) payload.penName = cleanPenName;
-    if (cleanPhotoUrl) payload.photoURL = cleanPhotoUrl;
+  const run = (async (): Promise<UserProfileRecord> => {
+    const profilePath = `users/${user.uid}`;
+    const profileRef = doc(db, 'users', user.uid);
+    const cleanDisplayName = clampString(
+      user.displayName || user.email?.split('@')[0] || 'StoryWeave Writer',
+      120,
+      'StoryWeave Writer'
+    );
+    const cleanEmail = clampString(user.email || 'writer@storyweave.app', 254);
+    const cleanPhotoUrl = user.photoURL ? clampString(user.photoURL, 1000) : undefined;
+    const cleanPenName = effectivePenName?.trim()
+      ? clampString(effectivePenName.trim(), 120)
+      : undefined;
 
+    let existingSnap;
     try {
-      await setDoc(profileRef, payload);
+      existingSnap = await getDoc(profileRef);
     } catch (error) {
-      handleFirestoreError(error, OperationType.CREATE, profilePath);
+      handleFirestoreError(error, OperationType.GET, profilePath);
     }
 
-    if (initialPreferences) {
-      await saveUserPreferences(user.uid, initialPreferences);
+    if (!existingSnap.exists()) {
+      const payload: Record<string, unknown> = {
+        uid: user.uid,
+        email: cleanEmail,
+        displayName: cleanDisplayName,
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      };
+      if (cleanPenName) payload.penName = cleanPenName;
+      if (cleanPhotoUrl) payload.photoURL = cleanPhotoUrl;
+
+      try {
+        await setDoc(profileRef, payload);
+      } catch (error) {
+        handleFirestoreError(error, OperationType.CREATE, profilePath);
+      }
+
+      if (effectivePrefs) {
+        await saveUserPreferences(user.uid, effectivePrefs);
+      }
+
+      return {
+        uid: user.uid,
+        email: cleanEmail,
+        displayName: cleanDisplayName,
+        penName: cleanPenName,
+        photoURL: cleanPhotoUrl,
+      };
+    }
+
+    const data = existingSnap.data();
+    const updates: Record<string, unknown> = {
+      displayName: cleanDisplayName,
+      updatedAt: serverTimestamp(),
+    };
+    if (cleanPenName) updates.penName = cleanPenName;
+    if (cleanPhotoUrl) updates.photoURL = cleanPhotoUrl;
+
+    try {
+      await updateDoc(profileRef, updates);
+    } catch (error) {
+      handleFirestoreError(error, OperationType.UPDATE, profilePath);
     }
 
     return {
       uid: user.uid,
-      email: cleanEmail,
+      email: clampString(data.email, 254, cleanEmail),
       displayName: cleanDisplayName,
-      penName: cleanPenName,
-      photoURL: cleanPhotoUrl,
+      penName: cleanPenName ?? (typeof data.penName === 'string' ? data.penName : undefined),
+      photoURL: cleanPhotoUrl ?? (typeof data.photoURL === 'string' ? data.photoURL : undefined),
     };
-  }
+  })();
 
-  const data = existingSnap.data();
-  const updates: Record<string, unknown> = {
-    displayName: cleanDisplayName,
-    updatedAt: serverTimestamp(),
-  };
-  if (cleanPenName) updates.penName = cleanPenName;
-  if (cleanPhotoUrl) updates.photoURL = cleanPhotoUrl;
-
+  inFlightProfileEnsures.set(user.uid, run);
   try {
-    await updateDoc(profileRef, updates);
-  } catch (error) {
-    handleFirestoreError(error, OperationType.UPDATE, profilePath);
+    return await run;
+  } finally {
+    inFlightProfileEnsures.delete(user.uid);
   }
-
-  return {
-    uid: user.uid,
-    email: clampString(data.email, 254, cleanEmail),
-    displayName: cleanDisplayName,
-    penName: cleanPenName ?? (typeof data.penName === 'string' ? data.penName : undefined),
-    photoURL: cleanPhotoUrl ?? (typeof data.photoURL === 'string' ? data.photoURL : undefined),
-  };
 }
 
 export async function fetchUserProfile(uid: string): Promise<UserProfileRecord | null> {
@@ -486,10 +518,19 @@ export async function saveUserStory(uid: string, story: StoryRecord): Promise<St
     basePayload.idea = clampString(story.idea.trim(), 2000);
   }
   if (Array.isArray(story.characterDetails) && story.characterDetails.length > 0) {
-    basePayload.characterDetails = story.characterDetails.slice(0, 20);
+    basePayload.characterDetails = story.characterDetails.slice(0, 20).map((cd) => ({
+      name: clampString(cd?.name ?? '', 160),
+      role: clampString(cd?.role ?? '', 160),
+      trait: clampString(cd?.trait ?? '', 600),
+    }));
   }
   if (Array.isArray(story.alternativeEndings) && story.alternativeEndings.length > 0) {
-    basePayload.alternativeEndings = story.alternativeEndings.slice(0, 6);
+    basePayload.alternativeEndings = story.alternativeEndings.slice(0, 6).map((ending) => ({
+      type: clampString(ending?.type ?? 'Open Ending', 40),
+      title: clampString(ending?.title ?? '', 240),
+      endingText: clampString(ending?.endingText ?? '', 4000),
+      emotionalNote: clampString(ending?.emotionalNote ?? '', 1000),
+    }));
   }
   if (story.preferredEndingType && VALID_ENDING_TYPES.includes(story.preferredEndingType)) {
     basePayload.preferredEndingType = story.preferredEndingType;
@@ -575,11 +616,15 @@ export async function saveUserCharacter(
     }
   } else {
     const existingData = existingSnap.data();
+    const updatePayload: Record<string, unknown> = {
+      ...basePayload,
+      createdAt: existingData.createdAt,
+    };
+    if (!basePayload.linkedStoryId && existingData.linkedStoryId !== undefined) {
+      updatePayload.linkedStoryId = deleteField();
+    }
     try {
-      await updateDoc(ref, {
-        ...basePayload,
-        createdAt: existingData.createdAt,
-      });
+      await updateDoc(ref, updatePayload);
     } catch (error) {
       handleFirestoreError(error, OperationType.UPDATE, path);
     }
@@ -610,14 +655,39 @@ export async function saveUserPlot(uid: string, plot: PlotOutline): Promise<Plot
     handleFirestoreError(error, OperationType.GET, path);
   }
 
+  const sanitizedBeats = Array.isArray(plot.beats)
+    ? plot.beats.slice(0, 10).map((b, idx) => ({
+        id: clampString(b?.id || `beat-${idx}`, 128),
+        stage: clampString(b?.stage || 'Introduction', 60),
+        title: clampString(b?.title ?? '', 240),
+        summary: clampString(b?.summary ?? '', 2000),
+      }))
+    : [];
+
+  const sanitizedChapters = Array.isArray(plot.chapters)
+    ? plot.chapters.slice(0, 25).map((ch, cIdx) => ({
+        id: clampString(ch?.id || `ch-${cIdx}`, 128),
+        title: clampString(ch?.title ?? '', 240),
+        summary: clampString(ch?.summary ?? '', 2000),
+        scenes: Array.isArray(ch?.scenes)
+          ? ch.scenes.slice(0, 20).map((sc, sIdx) => ({
+              id: clampString(sc?.id || `sc-${cIdx}-${sIdx}`, 128),
+              title: clampString(sc?.title ?? '', 240),
+              summary: clampString(sc?.summary ?? '', 2000),
+              setting: clampString(sc?.setting ?? '', 240),
+            }))
+          : [],
+      }))
+    : [];
+
   const basePayload: Record<string, unknown> = {
     id: cleanId,
     userId: uid,
     title: clampString(plot.title.trim() || 'Untitled Plot', 240, 'Untitled Plot'),
     premise: clampString(plot.premise ?? '', 4000),
     characterNames: clampStringArray(plot.characterNames, 20, 120),
-    beats: Array.isArray(plot.beats) ? plot.beats.slice(0, 10) : [],
-    chapters: Array.isArray(plot.chapters) ? plot.chapters.slice(0, 25) : [],
+    beats: sanitizedBeats,
+    chapters: sanitizedChapters,
     updatedAt: serverTimestamp(),
   };
 
@@ -636,11 +706,15 @@ export async function saveUserPlot(uid: string, plot: PlotOutline): Promise<Plot
     }
   } else {
     const existingData = existingSnap.data();
+    const updatePayload: Record<string, unknown> = {
+      ...basePayload,
+      createdAt: existingData.createdAt,
+    };
+    if (!basePayload.linkedStoryId && existingData.linkedStoryId !== undefined) {
+      updatePayload.linkedStoryId = deleteField();
+    }
     try {
-      await updateDoc(ref, {
-        ...basePayload,
-        createdAt: existingData.createdAt,
-      });
+      await updateDoc(ref, updatePayload);
     } catch (error) {
       handleFirestoreError(error, OperationType.UPDATE, path);
     }

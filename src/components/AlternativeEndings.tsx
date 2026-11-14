@@ -160,19 +160,28 @@ export function AlternativeEndings({
           }),
         };
 
-    await onSaveStory(updatedStory);
-    setSelectedStoryId(updatedStory.id);
-    setPreferredType(option.type);
-    setSavedType(option.type);
-    setTimeout(() => setSavedType(null), 2500);
+    setError(null);
+    try {
+      await onSaveStory(updatedStory);
+      setSelectedStoryId(updatedStory.id);
+      setPreferredType(option.type);
+      setSavedType(option.type);
+      setTimeout(() => setSavedType(null), 2500);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not save preferred ending.');
+    }
   };
 
   const handleCopyEnding = async (option: AlternativeEndingOption) => {
-    await navigator.clipboard.writeText(
-      `${option.type}: ${option.title}\n\n${option.endingText}`
-    );
-    setCopiedType(option.type);
-    setTimeout(() => setCopiedType(null), 2000);
+    try {
+      await navigator.clipboard.writeText(
+        `${option.type}: ${option.title}\n\n${option.endingText}`
+      );
+      setCopiedType(option.type);
+      setTimeout(() => setCopiedType(null), 2000);
+    } catch {
+      setError('Clipboard copy failed. You can select and copy the ending text directly.');
+    }
   };
 
   return (

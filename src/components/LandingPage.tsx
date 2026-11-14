@@ -628,7 +628,7 @@ export function LandingPage({
                   {authError && (
                     <div
                       role="alert"
-                      className="flex items-start gap-2 p-3 rounded-xl bg-rose-500/10 border border-rose-500/30 text-xs text-rose-400"
+                      className="flex items-start gap-2 p-3 rounded-xl bg-rose-500/10 border border-rose-500/30 text-xs text-rose-700 dark:text-rose-300"
                     >
                       <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
                       <span>{authError}</span>

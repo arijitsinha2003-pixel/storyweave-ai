@@ -54,13 +54,15 @@ export function CinematicIntro({ onComplete }: CinematicIntroProps) {
   const [reducedMotion, setReducedMotion] = useState(false);
 
   const isSkippingRef = useRef(false);
+  const finishTimeoutRef = useRef<number | null>(null);
 
   const triggerFinish = () => {
     if (isSkippingRef.current) return;
     isSkippingRef.current = true;
     setOverlayFadeOut(true);
     audioRef.current?.disable();
-    window.setTimeout(() => {
+    finishTimeoutRef.current = window.setTimeout(() => {
+      finishTimeoutRef.current = null;
       audioRef.current?.dispose();
       onCompleteRef.current();
     }, 800);
@@ -985,6 +987,10 @@ export function CinematicIntro({ onComplete }: CinematicIntroProps) {
       disposed = true;
       window.cancelAnimationFrame(frameId);
       window.clearTimeout(frameId);
+      if (finishTimeoutRef.current !== null) {
+        window.clearTimeout(finishTimeoutRef.current);
+        finishTimeoutRef.current = null;
+      }
       window.removeEventListener('resize', handleResize);
       audioRef.current?.dispose();
 

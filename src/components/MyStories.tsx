@@ -10,7 +10,7 @@ interface MyStoriesProps {
   onCreateNew: () => void;
   onOpenStory: (story: StoryRecord) => void;
   onCoWriteStory: (story: StoryRecord) => void;
-  onDeleteStory: (id: string) => void;
+  onDeleteStory: (id: string) => Promise<void> | void;
 }
 
 export function MyStories({
@@ -26,6 +26,7 @@ export function MyStories({
   const [genreFilter, setGenreFilter] = useState('All');
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [listeningStoryId, setListeningStoryId] = useState<string | null>(null);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   const listeningStory = useMemo(
     () => stories.find((s) => s.id === listeningStoryId) ?? null,
@@ -106,6 +107,15 @@ export function MyStories({
           })}
         </div>
       </div>
+
+      {deleteError && (
+        <div
+          role="alert"
+          className="rounded-xl bg-rose-500/10 border border-rose-500/35 px-4 py-3 text-xs text-rose-700 dark:text-rose-200"
+        >
+          {deleteError}
+        </div>
+      )}
 
       {/* Active Voice Reader Bar for Selected Story */}
       {listeningStory && (
@@ -233,9 +243,16 @@ export function MyStories({
                   {confirmDeleteId === story.id ? (
                     <button
                       type="button"
-                      onClick={() => {
-                        onDeleteStory(story.id);
+                      onClick={async () => {
                         setConfirmDeleteId(null);
+                        setDeleteError(null);
+                        try {
+                          await onDeleteStory(story.id);
+                        } catch (err) {
+                          setDeleteError(
+                            err instanceof Error ? err.message : 'Unable to delete story.'
+                          );
+                        }
                       }}
                       className="px-2.5 py-1.5 rounded-lg text-xs font-semibold text-red-700 dark:text-red-200 bg-red-500/15 border border-red-400/40 cursor-pointer"
                     >

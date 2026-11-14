@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { BookOpen } from 'lucide-react';
 
 interface SafeImageProps {
@@ -15,6 +15,10 @@ export function SafeImage({
   fallbackLabel = 'StoryWeave Illustration',
 }: SafeImageProps) {
   const [hasError, setHasError] = useState(false);
+
+  useEffect(() => {
+    setHasError(false);
+  }, [src]);
 
   if (hasError || !src) {
     return (
