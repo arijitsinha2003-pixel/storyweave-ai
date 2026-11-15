@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
-import { ArrowRight, Volume2, VolumeX } from 'lucide-react';
+import { ArrowRight } from 'lucide-react';
 import {
   createGlyphAtlasTexture,
   createLeatherCoverTexture,
@@ -48,12 +48,10 @@ export function CinematicIntro({ onComplete }: CinematicIntroProps) {
   const fallbackGlowRef = useRef<HTMLDivElement | null>(null);
   const lastChapterIdxRef = useRef<number>(0);
 
-  const [soundEnabled, setSoundEnabled] = useState(true);
   const [sceneLabel, setSceneLabel] = useState(SCENE_CHAPTERS[0].label);
   const [overlayFadeOut, setOverlayFadeOut] = useState(false);
   const [reducedMotion, setReducedMotion] = useState(false);
 
-  const userMutedRef = useRef(false);
   const isSkippingRef = useRef(false);
   const finishTimeoutRef = useRef<number | null>(null);
 
@@ -67,21 +65,6 @@ export function CinematicIntro({ onComplete }: CinematicIntroProps) {
       audioRef.current?.dispose();
       onCompleteRef.current();
     }, 800);
-  };
-
-  const handleToggleSound = () => {
-    if (!audioRef.current) {
-      audioRef.current = new CinematicAudioEngine();
-    }
-    if (soundEnabled) {
-      userMutedRef.current = true;
-      audioRef.current.disable();
-      setSoundEnabled(false);
-    } else {
-      userMutedRef.current = false;
-      const started = audioRef.current.enable();
-      setSoundEnabled(started);
-    }
   };
 
   useEffect(() => {
@@ -103,16 +86,10 @@ export function CinematicIntro({ onComplete }: CinematicIntroProps) {
     if (!audioRef.current) {
       audioRef.current = new CinematicAudioEngine();
     }
-    if (!userMutedRef.current) {
-      audioRef.current.enable();
-    }
+    audioRef.current.enable();
 
-    const handleFirstInteraction = (event?: Event) => {
-      const target = event?.target as HTMLElement | null;
-      if (target?.closest('[data-intro-sound-toggle="true"]')) return;
-      if (!userMutedRef.current) {
-        audioRef.current?.resumeIfAllowed();
-      }
+    const handleFirstInteraction = () => {
+      audioRef.current?.resumeIfAllowed();
     };
     window.addEventListener('pointerdown', handleFirstInteraction, { passive: true });
     window.addEventListener('keydown', handleFirstInteraction, { passive: true });
@@ -1158,29 +1135,8 @@ export function CinematicIntro({ onComplete }: CinematicIntroProps) {
         </p>
       </div>
 
-      {/* Top-Right Controls: Sound Toggle + Skip Intro (solid rgba, zero backdrop-filter over WebGL) */}
-      <div className="absolute top-10 right-4 sm:top-14 sm:right-6 z-20 flex items-center gap-2.5">
-        {!reducedMotion && (
-          <button
-            type="button"
-            data-intro-sound-toggle="true"
-            onClick={handleToggleSound}
-            aria-label={soundEnabled ? 'Disable intro sound' : 'Sound disabled'}
-            aria-pressed={!soundEnabled}
-            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-medium text-[#E2E8F0] border border-[#A78BFA]/25 hover:border-[#A78BFA]/60 transition-colors cursor-pointer"
-            style={{ backgroundColor: 'rgba(11, 11, 20, 0.8)' }}
-          >
-            {soundEnabled ? (
-              <Volume2 className="w-3.5 h-3.5 text-[#FBBF24]" />
-            ) : (
-              <VolumeX className="w-3.5 h-3.5 text-[#A78BFA]" />
-            )}
-            <span>
-              {soundEnabled ? 'Disable Sound' : 'Sound Off'}
-            </span>
-          </button>
-        )}
-
+      {/* Top-Right Control: Skip Intro (solid rgba, zero backdrop-filter over WebGL) */}
+      <div className="absolute top-10 right-4 sm:top-14 sm:right-6 z-20 flex items-center">
         <button
           type="button"
           onClick={triggerFinish}
