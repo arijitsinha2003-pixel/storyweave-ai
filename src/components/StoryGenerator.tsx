@@ -6,6 +6,7 @@ import {
   Copy,
   Edit3,
   Feather,
+  FileDown,
   Loader2,
   RefreshCw,
   Save,
@@ -13,6 +14,7 @@ import {
 } from 'lucide-react';
 import { getLanguageNameForAI, TRANSLATIONS } from '../i18n/translations';
 import { StoryVoiceAssistant } from './StoryVoiceAssistant';
+import { VoiceDictationButton, appendDictatedText } from './VoiceDictationButton';
 import {
   GeneratedCharacterDetail,
   StoryRecord,
@@ -88,6 +90,9 @@ export function StoryGenerator({
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [savedNotice, setSavedNotice] = useState(false);
+  const [isExportingPdf, setIsExportingPdf] = useState(false);
+  const [pdfSavedNotice, setPdfSavedNotice] = useState(false);
+  const [pdfError, setPdfError] = useState<string | null>(null);
 
   const prevActiveStoryRef = useRef<StoryRecord | null>(activeStory);
   const draftRef = useRef<StoryRecord | null>(draft);
@@ -95,12 +100,14 @@ export function StoryGenerator({
   const abortControllerRef = useRef<AbortController | null>(null);
   const copyTimerRef = useRef<number | null>(null);
   const saveTimerRef = useRef<number | null>(null);
+  const pdfTimerRef = useRef<number | null>(null);
 
   useEffect(() => {
     return () => {
       abortControllerRef.current?.abort();
       if (copyTimerRef.current !== null) window.clearTimeout(copyTimerRef.current);
       if (saveTimerRef.current !== null) window.clearTimeout(saveTimerRef.current);
+      if (pdfTimerRef.current !== null) window.clearTimeout(pdfTimerRef.current);
     };
   }, []);
 
@@ -137,6 +144,8 @@ export function StoryGenerator({
         setIsEditing(false);
         setError(null);
         setSavedNotice(false);
+        setPdfSavedNotice(false);
+        setPdfError(null);
       }
     } else if (prev !== null) {
       // Reset cleanly when switching from an opened/saved story to "+ New Story"
@@ -149,6 +158,8 @@ export function StoryGenerator({
       setIsEditing(false);
       setError(null);
       setSavedNotice(false);
+      setPdfSavedNotice(false);
+      setPdfError(null);
     }
   }, [activeStory, preferences.defaultLength, preferences.defaultTone]);
 
@@ -307,6 +318,26 @@ export function StoryGenerator({
     }
   };
 
+  const handleSaveAsPdf = async () => {
+    if (!draft || isExportingPdf) return;
+    setPdfError(null);
+    setIsExportingPdf(true);
+    try {
+      const { exportStoryToPdf } = await import('../utils/exportStoryPdf');
+      await exportStoryToPdf({
+        ...draft,
+        wordCount: computeWordCount(draft.narrative),
+      });
+      setPdfSavedNotice(true);
+      if (pdfTimerRef.current !== null) window.clearTimeout(pdfTimerRef.current);
+      pdfTimerRef.current = window.setTimeout(() => setPdfSavedNotice(false), 3000);
+    } catch (err) {
+      setPdfError(err instanceof Error ? err.message : 'Unable to export PDF right now.');
+    } finally {
+      setIsExportingPdf(false);
+    }
+  };
+
   const updateDraftField = (
     field: 'title' | 'description' | 'narrative' | 'conflict' | 'climax' | 'resolution',
     value: string
@@ -357,9 +388,19 @@ export function StoryGenerator({
               >
                 {t.storyGen.storyIdea}
               </label>
-              <span className="text-xs text-[var(--text-subtle)] font-mono tabular-figures">
-                {idea.trim().length} chars
-              </span>
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-[var(--text-subtle)] font-mono tabular-figures">
+                  {idea.trim().length} chars
+                </span>
+                <VoiceDictationButton
+                  language={preferences.language}
+                  contextHint="story idea prompt"
+                  onTranscript={(spoken) => {
+                    setIdea((prev) => appendDictatedText(prev, spoken));
+                    if (error) setError(null);
+                  }}
+                />
+              </div>
             </div>
             <textarea
               id="story-idea"
@@ -608,8 +649,42 @@ export function StoryGenerator({
                       </>
                     )}
                   </button>
+
+                  <button
+                    type="button"
+                    onClick={handleSaveAsPdf}
+                    disabled={isExportingPdf}
+                    className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-semibold text-[var(--text-primary)] bg-[var(--bg-surface)] border border-[#8B5CF6]/45 hover:border-[#8B5CF6] hover:bg-[#8B5CF6]/10 disabled:opacity-60 disabled:cursor-not-allowed transition-all cursor-pointer whitespace-nowrap"
+                  >
+                    {isExportingPdf ? (
+                      <>
+                        <Loader2 className="w-3.5 h-3.5 animate-spin text-[var(--accent-text)]" />
+                        <span>Exporting PDF...</span>
+                      </>
+                    ) : pdfSavedNotice ? (
+                      <>
+                        <Check className="w-3.5 h-3.5 text-emerald-500" />
+                        <span>PDF Saved</span>
+                      </>
+                    ) : (
+                      <>
+                        <FileDown className="w-3.5 h-3.5 text-[var(--accent-text)]" />
+                        <span>Save as PDF</span>
+                      </>
+                    )}
+                  </button>
                 </div>
               </div>
+
+              {pdfError && (
+                <div
+                  role="alert"
+                  className="mx-6 mt-4 rounded-xl bg-red-500/10 border border-red-500/30 p-3 flex items-start gap-2 text-xs text-red-700 dark:text-red-200"
+                >
+                  <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+                  <span>{pdfError}</span>
+                </div>
+              )}
 
               <div className="p-6 sm:p-8 space-y-7">
                 {/* Title & Description */}
@@ -623,13 +698,28 @@ export function StoryGenerator({
                         aria-label="Story Title"
                         className="w-full rounded-xl bg-[var(--bg-input)] border border-[#8B5CF6]/40 px-4 py-2.5 text-xl sm:text-2xl font-bold text-[var(--text-primary)] focus:outline-none focus:border-[#8B5CF6]"
                       />
-                      <textarea
-                        rows={2}
-                        value={draft.description}
-                        onChange={(e) => updateDraftField('description', e.target.value)}
-                        aria-label="Story Description"
-                        className="w-full rounded-xl bg-[var(--bg-input)] border border-[var(--border-strong)] px-4 py-2.5 text-sm text-[var(--text-primary)] focus:outline-none focus:border-[#8B5CF6]"
-                      />
+                      <div className="space-y-1.5">
+                        <div className="flex justify-end">
+                          <VoiceDictationButton
+                            compact
+                            language={draft.language ?? preferences.language}
+                            contextHint="story description"
+                            onTranscript={(spoken) =>
+                              updateDraftField(
+                                'description',
+                                appendDictatedText(draft.description, spoken)
+                              )
+                            }
+                          />
+                        </div>
+                        <textarea
+                          rows={2}
+                          value={draft.description}
+                          onChange={(e) => updateDraftField('description', e.target.value)}
+                          aria-label="Story Description"
+                          className="w-full rounded-xl bg-[var(--bg-input)] border border-[var(--border-strong)] px-4 py-2.5 text-sm text-[var(--text-primary)] focus:outline-none focus:border-[#8B5CF6]"
+                        />
+                      </div>
                     </>
                   ) : (
                     <>
@@ -654,9 +744,24 @@ export function StoryGenerator({
 
                 {/* Complete Narrative */}
                 <div className="pt-6 border-t border-[var(--border-subtle)]">
-                  <h3 className="text-xs font-semibold text-[var(--accent-text)] mb-3">
-                    {t.storyGen.narrative}
-                  </h3>
+                  <div className="flex items-center justify-between gap-2 mb-3">
+                    <h3 className="text-xs font-semibold text-[var(--accent-text)]">
+                      {t.storyGen.narrative}
+                    </h3>
+                    {isEditing && (
+                      <VoiceDictationButton
+                        compact
+                        language={draft.language ?? preferences.language}
+                        contextHint="story narrative"
+                        onTranscript={(spoken) =>
+                          updateDraftField(
+                            'narrative',
+                            appendDictatedText(draft.narrative, spoken)
+                          )
+                        }
+                      />
+                    )}
+                  </div>
                   {isEditing ? (
                     <textarea
                       rows={14}

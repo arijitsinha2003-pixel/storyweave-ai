@@ -1,10 +1,12 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   AlertCircle,
+  BookOpen,
   Check,
   Edit3,
   Loader2,
   Plus,
+  RotateCcw,
   Search,
   Sparkles,
   Trash2,
@@ -14,6 +16,7 @@ import {
 } from 'lucide-react';
 import { TRANSLATIONS } from '../i18n/translations';
 import { AppLanguage, CharacterProfile, StoryRecord } from '../types/story';
+import { VoiceDictationButton, appendDictatedText } from './VoiceDictationButton';
 
 interface CharacterStudioProps {
   language: AppLanguage;
@@ -33,6 +36,12 @@ const ROLE_OPTIONS = [
   'Wildcard',
 ];
 
+const CONCEPT_STARTERS = [
+  'A classical sitar restorer in Varanasi hiding an ancestral secret',
+  'A retired monsoon meteorologist tracking impossible storms along the Konkan coast',
+  'A midnight archivist in Old Delhi who translates torn family letters',
+];
+
 export function CharacterStudio({
   language,
   characters,
@@ -47,9 +56,12 @@ export function CharacterStudio({
   const [aiGenre, setAiGenre] = useState('Folklore & Magical Realism');
   const [aiRole, setAiRole] = useState('Protagonist');
   const [isGenerating, setIsGenerating] = useState(false);
+  const [aiError, setAiError] = useState<string | null>(null);
+  const [aiPopulatedNotice, setAiPopulatedNotice] = useState(false);
 
   // Character editor state
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [editingCreatedAt, setEditingCreatedAt] = useState<string | null>(null);
   const [name, setName] = useState('');
   const [role, setRole] = useState('Protagonist');
   const [personality, setPersonality] = useState('');
@@ -59,12 +71,35 @@ export function CharacterStudio({
   const [strengthInput, setStrengthInput] = useState('');
   const [weaknessInput, setWeaknessInput] = useState('');
   const [linkedStoryId, setLinkedStoryId] = useState('');
+  const [isSaving, setIsSaving] = useState(false);
 
   // Library state
   const [searchQuery, setSearchQuery] = useState('');
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [savedNotice, setSavedNotice] = useState(false);
+
+  const abortControllerRef = useRef<AbortController | null>(null);
+  const saveTimerRef = useRef<number | null>(null);
+  const aiTimerRef = useRef<number | null>(null);
+  const formHeadingRef = useRef<HTMLFormElement | null>(null);
+
+  useEffect(() => {
+    return () => {
+      abortControllerRef.current?.abort();
+      if (saveTimerRef.current !== null) window.clearTimeout(saveTimerRef.current);
+      if (aiTimerRef.current !== null) window.clearTimeout(aiTimerRef.current);
+    };
+  }, []);
+
+  const storyTitleById = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const s of stories) {
+      map.set(s.id, s.title);
+    }
+    return map;
+  }, [stories]);
 
   const filteredCharacters = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
@@ -73,12 +108,26 @@ export function CharacterStudio({
       (c) =>
         c.name.toLowerCase().includes(q) ||
         c.role.toLowerCase().includes(q) ||
-        c.personality.toLowerCase().includes(q)
+        c.personality.toLowerCase().includes(q) ||
+        c.background.toLowerCase().includes(q)
     );
   }, [characters, searchQuery]);
 
+  const hasFormContent = Boolean(
+    editingId ||
+      name.trim() ||
+      personality.trim() ||
+      background.trim() ||
+      strengths.length > 0 ||
+      weaknesses.length > 0 ||
+      strengthInput.trim() ||
+      weaknessInput.trim() ||
+      linkedStoryId
+  );
+
   const resetForm = () => {
     setEditingId(null);
+    setEditingCreatedAt(null);
     setName('');
     setRole('Protagonist');
     setPersonality('');
@@ -88,37 +137,54 @@ export function CharacterStudio({
     setStrengthInput('');
     setWeaknessInput('');
     setLinkedStoryId('');
+    setAiPopulatedNotice(false);
     setError(null);
   };
 
   const handleLoadIntoEditor = (character: CharacterProfile) => {
     setEditingId(character.id);
+    setEditingCreatedAt(character.createdAt);
     setName(character.name);
     setRole(character.role);
     setPersonality(character.personality);
     setBackground(character.background);
     setStrengths([...character.strengths]);
     setWeaknesses([...character.weaknesses]);
+    setStrengthInput('');
+    setWeaknessInput('');
     setLinkedStoryId(character.linkedStoryId ?? '');
+    setAiPopulatedNotice(false);
     setError(null);
-    window.scrollTo({ top: 0, behavior: 'smooth' });
+    setSavedNotice(false);
+    formHeadingRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   };
 
   const handleGenerateWithAI = async () => {
-    if (aiConcept.trim().length < 3) {
-      setError('Enter a brief character concept (at least 3 characters) to generate with AI.');
+    const concept = aiConcept.trim();
+    if (concept.length < 3) {
+      setAiError('Enter a brief character concept (at least 3 characters) to generate with AI.');
       return;
     }
+
+    abortControllerRef.current?.abort();
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
+    const timeoutId = window.setTimeout(() => controller.abort(), 100000);
+
     setIsGenerating(true);
+    setAiError(null);
     setError(null);
+    setSavedNotice(false);
+    setAiPopulatedNotice(false);
 
     try {
       const response = await fetch('/api/characters/generate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        signal: controller.signal,
         body: JSON.stringify({
-          concept: aiConcept.trim(),
-          genre: aiGenre,
+          concept,
+          genre: aiGenre.trim(),
           roleHint: aiRole,
           language,
         }),
@@ -127,70 +193,128 @@ export function CharacterStudio({
       if (!response.ok || !data?.character) {
         throw new Error(data?.error || 'Could not generate character.');
       }
+
       const c = data.character;
+      const cleanList = (arr: unknown): string[] =>
+        Array.isArray(arr)
+          ? Array.from(
+              new Set(
+                arr.map((item) => String(item ?? '').trim()).filter(Boolean)
+              )
+            ).slice(0, 15)
+          : [];
+
       setEditingId(null);
-      setName(c.name || '');
-      setRole(c.role || aiRole);
-      setPersonality(c.personality || '');
-      setBackground(c.background || '');
-      setStrengths(Array.isArray(c.strengths) ? c.strengths : []);
-      setWeaknesses(Array.isArray(c.weaknesses) ? c.weaknesses : []);
+      setEditingCreatedAt(null);
+      setName(String(c.name ?? '').trim());
+      setRole(String(c.role ?? aiRole).trim() || aiRole);
+      setPersonality(String(c.personality ?? '').trim());
+      setBackground(String(c.background ?? '').trim());
+      setStrengths(cleanList(c.strengths));
+      setWeaknesses(cleanList(c.weaknesses));
+      setStrengthInput('');
+      setWeaknessInput('');
+      setLinkedStoryId('');
+      setAiPopulatedNotice(true);
+      if (aiTimerRef.current !== null) window.clearTimeout(aiTimerRef.current);
+      aiTimerRef.current = window.setTimeout(() => setAiPopulatedNotice(false), 5000);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Character generation failed.');
+      if (err instanceof DOMException && err.name === 'AbortError') {
+        setAiError('Character generation timed out. Please try again.');
+        return;
+      }
+      setAiError(err instanceof Error ? err.message : 'Character generation failed.');
     } finally {
+      window.clearTimeout(timeoutId);
+      if (abortControllerRef.current === controller) {
+        abortControllerRef.current = null;
+      }
       setIsGenerating(false);
     }
   };
 
   const addStrength = () => {
-    const val = strengthInput.trim();
+    const val = strengthInput.trim().slice(0, 240);
     if (!val) return;
+    if (strengths.length >= 15) {
+      setError('You can add up to 15 strengths per character.');
+      return;
+    }
     if (!strengths.includes(val)) {
       setStrengths((prev) => [...prev, val]);
     }
     setStrengthInput('');
+    setError(null);
   };
 
   const addWeakness = () => {
-    const val = weaknessInput.trim();
+    const val = weaknessInput.trim().slice(0, 240);
     if (!val) return;
+    if (weaknesses.length >= 15) {
+      setError('You can add up to 15 weaknesses per character.');
+      return;
+    }
     if (!weaknesses.includes(val)) {
       setWeaknesses((prev) => [...prev, val]);
     }
     setWeaknessInput('');
+    setError(null);
   };
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!name.trim()) {
+    if (isSaving) return;
+
+    const cleanName = name.trim().slice(0, 160);
+    if (!cleanName) {
       setError('Character name is required.');
       return;
     }
 
+    const finalStrengths = Array.from(
+      new Set([
+        ...strengths.map((s) => s.trim()).filter(Boolean),
+        ...(strengthInput.trim() ? [strengthInput.trim().slice(0, 240)] : []),
+      ])
+    ).slice(0, 15);
+
+    const finalWeaknesses = Array.from(
+      new Set([
+        ...weaknesses.map((w) => w.trim()).filter(Boolean),
+        ...(weaknessInput.trim() ? [weaknessInput.trim().slice(0, 240)] : []),
+      ])
+    ).slice(0, 15);
+
     const profile: CharacterProfile = {
       id: editingId ?? `char-${Date.now()}`,
-      name: name.trim(),
-      role: role.trim() || 'Character',
-      personality: personality.trim(),
-      background: background.trim(),
-      strengths,
-      weaknesses,
+      name: cleanName,
+      role: (role.trim() || 'Character').slice(0, 160),
+      personality: personality.trim().slice(0, 3000),
+      background: background.trim().slice(0, 5000),
+      strengths: finalStrengths,
+      weaknesses: finalWeaknesses,
       linkedStoryId: linkedStoryId || undefined,
-      createdAt: new Date().toLocaleDateString('en-IN', {
-        month: 'short',
-        day: 'numeric',
-        year: 'numeric',
-      }),
+      createdAt:
+        editingCreatedAt ??
+        new Date().toLocaleDateString('en-IN', {
+          month: 'short',
+          day: 'numeric',
+          year: 'numeric',
+        }),
     };
 
+    setIsSaving(true);
     setError(null);
     try {
       await onSaveCharacter(profile);
       setSavedNotice(true);
-      setTimeout(() => setSavedNotice(false), 2500);
+      if (saveTimerRef.current !== null) window.clearTimeout(saveTimerRef.current);
+      saveTimerRef.current = window.setTimeout(() => setSavedNotice(false), 2500);
       resetForm();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not save character.');
+    } finally {
+      setIsSaving(false);
     }
   };
 
@@ -216,11 +340,21 @@ export function CharacterStudio({
         <div className="xl:col-span-5 space-y-6">
           {/* AI Quick Generator */}
           <section className="glass-surface rounded-2xl p-6 space-y-4">
-            <div className="flex items-center gap-2">
-              <Sparkles className="w-4 h-4 text-[var(--accent-text)]" />
-              <h2 className="text-sm font-semibold text-[var(--text-primary)]">
-                {t.characters.generateWithAi}
-              </h2>
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2">
+                <Sparkles className="w-4 h-4 text-[var(--accent-text)]" />
+                <h2 className="text-sm font-semibold text-[var(--text-primary)]">
+                  {t.characters.generateWithAi}
+                </h2>
+              </div>
+              <VoiceDictationButton
+                language={language}
+                contextHint="character concept prompt"
+                onTranscript={(spoken) => {
+                  setAiConcept((prev) => appendDictatedText(prev, spoken));
+                  if (aiError) setAiError(null);
+                }}
+              />
             </div>
 
             <textarea
@@ -228,11 +362,28 @@ export function CharacterStudio({
               value={aiConcept}
               onChange={(e) => {
                 setAiConcept(e.target.value);
-                if (error) setError(null);
+                if (aiError) setAiError(null);
               }}
               placeholder="e.g., A classical sitar restorer in Varanasi hiding an ancestral secret..."
+              aria-label="Character concept"
               className="w-full rounded-xl bg-[var(--bg-input)] border border-[var(--border-subtle)] px-3.5 py-2.5 text-sm text-[var(--text-primary)] placeholder:text-[var(--text-subtle)] focus:outline-none focus:border-[#8B5CF6]"
             />
+
+            <div className="flex flex-col gap-1.5">
+              {CONCEPT_STARTERS.map((starter, idx) => (
+                <button
+                  key={idx}
+                  type="button"
+                  onClick={() => {
+                    setAiConcept(starter);
+                    setAiError(null);
+                  }}
+                  className="text-left text-xs text-[var(--accent-text)] hover:text-[var(--text-primary)] bg-[var(--bg-elevated)] border border-[var(--border-subtle)] rounded-lg px-3 py-1.5 transition-colors cursor-pointer line-clamp-1"
+                >
+                  {starter}
+                </button>
+              ))}
+            </div>
 
             <div className="grid grid-cols-2 gap-3">
               <label className="block space-y-1">
@@ -261,11 +412,28 @@ export function CharacterStudio({
               </label>
             </div>
 
+            {aiError && (
+              <div
+                role="alert"
+                className="rounded-xl bg-red-500/10 border border-red-500/30 p-3 flex items-start gap-2 text-xs text-red-700 dark:text-red-200"
+              >
+                <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+                <span>{aiError}</span>
+              </div>
+            )}
+
+            {aiPopulatedNotice && (
+              <div className="rounded-xl bg-emerald-500/10 border border-emerald-500/30 p-3 flex items-center gap-2 text-xs text-emerald-700 dark:text-emerald-200">
+                <Check className="w-4 h-4 shrink-0" />
+                <span>Character profile generated below. Review or click Save Character to add to your roster.</span>
+              </div>
+            )}
+
             <button
               type="button"
               onClick={handleGenerateWithAI}
               disabled={isGenerating}
-              className="w-full inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-xs font-semibold text-white bg-gradient-to-r from-[#8B5CF6] to-[#6366F1] hover:brightness-110 disabled:opacity-60 transition-all cursor-pointer"
+              className="w-full inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-xs font-semibold text-white bg-gradient-to-r from-[#8B5CF6] to-[#6366F1] hover:brightness-110 disabled:opacity-60 disabled:cursor-not-allowed transition-all cursor-pointer"
             >
               {isGenerating ? (
                 <>
@@ -283,6 +451,7 @@ export function CharacterStudio({
 
           {/* Manual / Edit Profile Form */}
           <form
+            ref={formHeadingRef}
             onSubmit={handleSave}
             className="rounded-2xl bg-[var(--bg-surface)] border border-[var(--border-subtle)] p-6 space-y-4"
           >
@@ -290,13 +459,14 @@ export function CharacterStudio({
               <h2 className="text-sm font-semibold text-[var(--text-primary)]">
                 {editingId ? t.characters.editHeading : t.characters.detailsHeading}
               </h2>
-              {editingId && (
+              {(editingId || hasFormContent) && (
                 <button
                   type="button"
                   onClick={resetForm}
-                  className="text-xs text-[var(--accent-text)] hover:text-[var(--text-primary)] cursor-pointer"
+                  className="inline-flex items-center gap-1 text-xs text-[var(--accent-text)] hover:text-[var(--text-primary)] cursor-pointer"
                 >
-                  Cancel Edit
+                  <RotateCcw className="w-3 h-3" />
+                  <span>{editingId ? 'Cancel Edit' : 'Clear'}</span>
                 </button>
               )}
             </div>
@@ -308,8 +478,12 @@ export function CharacterStudio({
                 </span>
                 <input
                   type="text"
+                  maxLength={160}
                   value={name}
-                  onChange={(e) => setName(e.target.value)}
+                  onChange={(e) => {
+                    setName(e.target.value);
+                    if (error) setError(null);
+                  }}
                   placeholder="e.g., Aarav Chatterjee"
                   className="w-full rounded-xl bg-[var(--bg-input)] border border-[var(--border-subtle)] px-3.5 py-2 text-sm text-[var(--text-primary)] placeholder:text-[var(--text-subtle)] focus:outline-none focus:border-[#8B5CF6]"
                 />
@@ -321,6 +495,7 @@ export function CharacterStudio({
                 </span>
                 <input
                   type="text"
+                  maxLength={160}
                   value={role}
                   onChange={(e) => setRole(e.target.value)}
                   placeholder="e.g., Protagonist"
@@ -329,31 +504,61 @@ export function CharacterStudio({
               </label>
             </div>
 
-            <label className="block space-y-1">
-              <span className="text-xs font-medium text-[var(--text-muted)]">
-                {t.characters.personalityLabel}
-              </span>
+            <div className="space-y-1">
+              <div className="flex items-center justify-between gap-2">
+                <label
+                  htmlFor="character-personality"
+                  className="text-xs font-medium text-[var(--text-muted)]"
+                >
+                  {t.characters.personalityLabel}
+                </label>
+                <VoiceDictationButton
+                  compact
+                  language={language}
+                  contextHint="character personality"
+                  onTranscript={(spoken) =>
+                    setPersonality((prev) => appendDictatedText(prev, spoken))
+                  }
+                />
+              </div>
               <textarea
+                id="character-personality"
                 rows={2}
+                maxLength={3000}
                 value={personality}
                 onChange={(e) => setPersonality(e.target.value)}
                 placeholder="Temperament, speech habits, inner contradictions..."
                 className="w-full rounded-xl bg-[var(--bg-input)] border border-[var(--border-subtle)] px-3.5 py-2 text-sm text-[var(--text-primary)] placeholder:text-[var(--text-subtle)] focus:outline-none focus:border-[#8B5CF6]"
               />
-            </label>
+            </div>
 
-            <label className="block space-y-1">
-              <span className="text-xs font-medium text-[var(--text-muted)]">
-                {t.characters.backgroundLabel}
-              </span>
+            <div className="space-y-1">
+              <div className="flex items-center justify-between gap-2">
+                <label
+                  htmlFor="character-background"
+                  className="text-xs font-medium text-[var(--text-muted)]"
+                >
+                  {t.characters.backgroundLabel}
+                </label>
+                <VoiceDictationButton
+                  compact
+                  language={language}
+                  contextHint="character background"
+                  onTranscript={(spoken) =>
+                    setBackground((prev) => appendDictatedText(prev, spoken))
+                  }
+                />
+              </div>
               <textarea
+                id="character-background"
                 rows={3}
+                maxLength={5000}
                 value={background}
                 onChange={(e) => setBackground(e.target.value)}
                 placeholder="Origin, formative events, hidden secrets..."
                 className="w-full rounded-xl bg-[var(--bg-input)] border border-[var(--border-subtle)] px-3.5 py-2 text-sm text-[var(--text-primary)] placeholder:text-[var(--text-subtle)] focus:outline-none focus:border-[#8B5CF6]"
               />
-            </label>
+            </div>
 
             {/* Strengths Editor */}
             <div className="space-y-2">
@@ -363,6 +568,7 @@ export function CharacterStudio({
               <div className="flex gap-2">
                 <input
                   type="text"
+                  maxLength={240}
                   value={strengthInput}
                   onChange={(e) => setStrengthInput(e.target.value)}
                   onKeyDown={(e) => {
@@ -385,19 +591,19 @@ export function CharacterStudio({
               </div>
               {strengths.length > 0 && (
                 <ul className="space-y-1 pt-1">
-                  {strengths.map((item) => (
+                  {strengths.map((item, idx) => (
                     <li
-                      key={item}
+                      key={`${item}-${idx}`}
                       className="flex items-center justify-between gap-2 text-xs text-[var(--text-primary)] bg-[var(--bg-elevated)] rounded-lg px-3 py-1.5"
                     >
                       <span>{item}</span>
                       <button
                         type="button"
                         onClick={() =>
-                          setStrengths((prev) => prev.filter((s) => s !== item))
+                          setStrengths((prev) => prev.filter((_, i) => i !== idx))
                         }
                         aria-label={`Remove ${item}`}
-                        className="text-[var(--text-subtle)] hover:text-[var(--text-primary)] cursor-pointer"
+                        className="text-[var(--text-subtle)] hover:text-[var(--text-primary)] cursor-pointer shrink-0"
                       >
                         <X className="w-3 h-3" />
                       </button>
@@ -415,6 +621,7 @@ export function CharacterStudio({
               <div className="flex gap-2">
                 <input
                   type="text"
+                  maxLength={240}
                   value={weaknessInput}
                   onChange={(e) => setWeaknessInput(e.target.value)}
                   onKeyDown={(e) => {
@@ -437,19 +644,19 @@ export function CharacterStudio({
               </div>
               {weaknesses.length > 0 && (
                 <ul className="space-y-1 pt-1">
-                  {weaknesses.map((item) => (
+                  {weaknesses.map((item, idx) => (
                     <li
-                      key={item}
+                      key={`${item}-${idx}`}
                       className="flex items-center justify-between gap-2 text-xs text-[var(--text-primary)] bg-[var(--bg-elevated)] rounded-lg px-3 py-1.5"
                     >
                       <span>{item}</span>
                       <button
                         type="button"
                         onClick={() =>
-                          setWeaknesses((prev) => prev.filter((w) => w !== item))
+                          setWeaknesses((prev) => prev.filter((_, i) => i !== idx))
                         }
                         aria-label={`Remove ${item}`}
-                        className="text-[var(--text-subtle)] hover:text-[var(--text-primary)] cursor-pointer"
+                        className="text-[var(--text-subtle)] hover:text-[var(--text-primary)] cursor-pointer shrink-0"
                       >
                         <X className="w-3 h-3" />
                       </button>
@@ -459,7 +666,7 @@ export function CharacterStudio({
               )}
             </div>
 
-            {stories.length > 0 && (
+            {(stories.length > 0 || linkedStoryId) && (
               <label className="block space-y-1">
                 <span className="text-xs font-medium text-[var(--text-muted)]">
                   Link to Story (Optional)
@@ -475,6 +682,9 @@ export function CharacterStudio({
                       {s.title}
                     </option>
                   ))}
+                  {linkedStoryId && !storyTitleById.has(linkedStoryId) && (
+                    <option value={linkedStoryId}>Linked story ({linkedStoryId})</option>
+                  )}
                 </select>
               </label>
             )}
@@ -491,9 +701,15 @@ export function CharacterStudio({
 
             <button
               type="submit"
-              className="w-full inline-flex items-center justify-center gap-2 px-4 py-3 rounded-xl text-sm font-semibold text-[var(--text-primary)] bg-[var(--bg-elevated)] border border-[#8B5CF6]/45 hover:bg-[#8B5CF6]/15 transition-colors cursor-pointer"
+              disabled={isSaving}
+              className="w-full inline-flex items-center justify-center gap-2 px-4 py-3 rounded-xl text-sm font-semibold text-[var(--text-primary)] bg-[var(--bg-elevated)] border border-[#8B5CF6]/45 hover:bg-[#8B5CF6]/15 disabled:opacity-60 disabled:cursor-not-allowed transition-colors cursor-pointer"
             >
-              {savedNotice ? (
+              {isSaving ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin text-[var(--accent-text)]" />
+                  <span>Saving...</span>
+                </>
+              ) : savedNotice ? (
                 <>
                   <Check className="w-4 h-4 text-emerald-500 dark:text-emerald-400" />
                   <span>{t.characters.savedBtn}</span>
@@ -540,103 +756,138 @@ export function CharacterStudio({
             </div>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-              {filteredCharacters.map((character) => (
-                <article
-                  key={character.id}
-                  className="rounded-2xl bg-[var(--bg-surface)] border border-[var(--border-subtle)] p-6 flex flex-col justify-between glow-border-hover"
-                >
-                  <div className="space-y-3">
-                    <div className="flex items-start justify-between gap-3">
-                      <div>
-                        <div className="text-xs text-[var(--accent-text)] mb-1">
-                          {character.role} · {character.createdAt}
+              {filteredCharacters.map((character) => {
+                const linkedTitle = character.linkedStoryId
+                  ? storyTitleById.get(character.linkedStoryId)
+                  : undefined;
+
+                return (
+                  <article
+                    key={character.id}
+                    className={`rounded-2xl bg-[var(--bg-surface)] border p-6 flex flex-col justify-between glow-border-hover ${
+                      editingId === character.id
+                        ? 'border-[#8B5CF6]/65'
+                        : 'border-[var(--border-subtle)]'
+                    }`}
+                  >
+                    <div className="space-y-3">
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <div className="text-xs text-[var(--accent-text)] mb-1">
+                            {character.role} · {character.createdAt}
+                          </div>
+                          <h3 className="text-lg font-semibold text-[var(--text-primary)]">
+                            {character.name}
+                          </h3>
                         </div>
-                        <h3 className="text-lg font-semibold text-[var(--text-primary)]">
-                          {character.name}
-                        </h3>
                       </div>
+
+                      {linkedTitle && (
+                        <div className="inline-flex items-center gap-1.5 text-xs text-[var(--text-muted)] bg-[var(--bg-elevated)] border border-[var(--border-subtle)] rounded-lg px-2.5 py-1 max-w-full">
+                          <BookOpen className="w-3 h-3 text-[var(--accent-text)] shrink-0" />
+                          <span className="truncate">{linkedTitle}</span>
+                        </div>
+                      )}
+
+                      {character.personality && (
+                        <p className="text-xs text-[var(--text-muted)] leading-relaxed">
+                          <span className="text-[var(--text-subtle)] font-medium">
+                            {t.characters.personalityLabel}:{' '}
+                          </span>
+                          {character.personality}
+                        </p>
+                      )}
+
+                      {character.background && (
+                        <p className="text-xs text-[var(--text-muted)] leading-relaxed">
+                          <span className="text-[var(--text-subtle)] font-medium">
+                            {t.characters.backgroundLabel}:{' '}
+                          </span>
+                          {character.background}
+                        </p>
+                      )}
+
+                      {(character.strengths.length > 0 || character.weaknesses.length > 0) && (
+                        <div className="pt-2 border-t border-[var(--border-subtle)] space-y-1.5 text-xs">
+                          {character.strengths.length > 0 && (
+                            <div className="text-[var(--text-muted)]">
+                              <span className="text-emerald-700 dark:text-emerald-300 font-medium">
+                                {t.characters.strengthsLabel}:{' '}
+                              </span>
+                              {character.strengths.join(' · ')}
+                            </div>
+                          )}
+                          {character.weaknesses.length > 0 && (
+                            <div className="text-[var(--text-muted)]">
+                              <span className="text-amber-700 dark:text-amber-300 font-medium">
+                                {t.characters.weaknessesLabel}:{' '}
+                              </span>
+                              {character.weaknesses.join(' · ')}
+                            </div>
+                          )}
+                        </div>
+                      )}
                     </div>
 
-                    {character.personality && (
-                      <p className="text-xs text-[var(--text-muted)] leading-relaxed">
-                        <span className="text-[var(--text-subtle)] font-medium">
-                          {t.characters.personalityLabel}:{' '}
-                        </span>
-                        {character.personality}
-                      </p>
-                    )}
-
-                    {character.background && (
-                      <p className="text-xs text-[var(--text-muted)] leading-relaxed">
-                        <span className="text-[var(--text-subtle)] font-medium">
-                          {t.characters.backgroundLabel}:{' '}
-                        </span>
-                        {character.background}
-                      </p>
-                    )}
-
-                    {(character.strengths.length > 0 || character.weaknesses.length > 0) && (
-                      <div className="pt-2 border-t border-[var(--border-subtle)] space-y-1.5 text-xs">
-                        {character.strengths.length > 0 && (
-                          <div className="text-[var(--text-muted)]">
-                            <span className="text-emerald-700 dark:text-emerald-300 font-medium">
-                              {t.characters.strengthsLabel}:{' '}
-                            </span>
-                            {character.strengths.join(' · ')}
-                          </div>
-                        )}
-                        {character.weaknesses.length > 0 && (
-                          <div className="text-[var(--text-muted)]">
-                            <span className="text-amber-700 dark:text-amber-300 font-medium">
-                              {t.characters.weaknessesLabel}:{' '}
-                            </span>
-                            {character.weaknesses.join(' · ')}
-                          </div>
-                        )}
-                      </div>
-                    )}
-                  </div>
-
-                  <div className="mt-5 pt-4 border-t border-[var(--border-subtle)] flex items-center justify-end gap-2">
-                    <button
-                      type="button"
-                      onClick={() => handleLoadIntoEditor(character)}
-                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-[var(--text-primary)] bg-[var(--bg-elevated)] border border-[var(--border-subtle)] hover:border-[#8B5CF6]/55 cursor-pointer"
-                    >
-                      <Edit3 className="w-3.5 h-3.5" />
-                      <span>{t.storyGen.edit}</span>
-                    </button>
-
-                    {confirmDeleteId === character.id ? (
+                    <div className="mt-5 pt-4 border-t border-[var(--border-subtle)] flex items-center justify-end gap-2">
                       <button
                         type="button"
-                        onClick={async () => {
-                          setConfirmDeleteId(null);
-                          try {
-                            await onDeleteCharacter(character.id);
-                          } catch (err) {
-                            setError(
-                              err instanceof Error ? err.message : 'Could not delete character.'
-                            );
-                          }
-                        }}
-                        className="px-2.5 py-1.5 rounded-lg text-xs font-semibold text-red-700 dark:text-red-200 bg-red-500/15 border border-red-500/40 cursor-pointer"
+                        onClick={() => handleLoadIntoEditor(character)}
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-[var(--text-primary)] bg-[var(--bg-elevated)] border border-[var(--border-subtle)] hover:border-[#8B5CF6]/55 cursor-pointer"
                       >
-                        Confirm
+                        <Edit3 className="w-3.5 h-3.5" />
+                        <span>{t.storyGen.edit}</span>
                       </button>
-                    ) : (
-                      <button
-                        type="button"
-                        onClick={() => setConfirmDeleteId(character.id)}
-                        aria-label={`Delete ${character.name}`}
-                        className="w-8 h-8 rounded-lg bg-[var(--bg-elevated)] border border-[var(--border-subtle)] flex items-center justify-center text-[var(--text-subtle)] hover:text-red-500 dark:hover:text-red-300 hover:border-red-400/40 cursor-pointer"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
-                    )}
-                  </div>
-                </article>
-              ))}
+
+                      {confirmDeleteId === character.id ? (
+                        <div className="inline-flex items-center gap-1.5">
+                          <button
+                            type="button"
+                            onClick={() => setConfirmDeleteId(null)}
+                            className="px-2.5 py-1.5 rounded-lg text-xs font-medium text-[var(--text-muted)] bg-[var(--bg-elevated)] border border-[var(--border-subtle)] hover:text-[var(--text-primary)] cursor-pointer"
+                          >
+                            Cancel
+                          </button>
+                          <button
+                            type="button"
+                            disabled={deletingId === character.id}
+                            onClick={async () => {
+                              setDeletingId(character.id);
+                              setConfirmDeleteId(null);
+                              try {
+                                await onDeleteCharacter(character.id);
+                                if (editingId === character.id) {
+                                  resetForm();
+                                }
+                              } catch (err) {
+                                setError(
+                                  err instanceof Error
+                                    ? err.message
+                                    : 'Could not delete character.'
+                                );
+                              } finally {
+                                setDeletingId(null);
+                              }
+                            }}
+                            className="px-2.5 py-1.5 rounded-lg text-xs font-semibold text-red-700 dark:text-red-200 bg-red-500/15 border border-red-500/40 disabled:opacity-60 cursor-pointer"
+                          >
+                            Confirm
+                          </button>
+                        </div>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => setConfirmDeleteId(character.id)}
+                          aria-label={`Delete ${character.name}`}
+                          className="w-8 h-8 rounded-lg bg-[var(--bg-elevated)] border border-[var(--border-subtle)] flex items-center justify-center text-[var(--text-subtle)] hover:text-red-500 dark:hover:text-red-300 hover:border-red-400/40 cursor-pointer"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+                    </div>
+                  </article>
+                );
+              })}
             </div>
           )}
         </div>

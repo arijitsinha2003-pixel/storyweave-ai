@@ -247,8 +247,8 @@ service cloud.firestore {
           && incoming().createdAt == existing().createdAt
           && incoming().updatedAt == request.time
           && incoming().diff(existing()).affectedKeys().hasOnly([
-            'name', 'role', 'personality', 'background', 'strengths',
-            'weaknesses', 'linkedStoryId', 'updatedAt'
+            'name', 'role', 'personality', 'background',
+            'strengths', 'weaknesses', 'linkedStoryId', 'updatedAt'
           ])
           && parentUserExists(userId);
 

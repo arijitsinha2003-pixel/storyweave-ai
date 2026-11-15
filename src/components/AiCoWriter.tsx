@@ -18,6 +18,7 @@ import {
 } from 'lucide-react';
 import { TRANSLATIONS } from '../i18n/translations';
 import { StoryVoiceAssistant } from './StoryVoiceAssistant';
+import { VoiceDictationButton, appendDictatedText } from './VoiceDictationButton';
 import {
   CharacterProfile,
   StoryRecord,
@@ -539,13 +540,23 @@ export function AiCoWriter({
       {/* Distraction-Free Writing Surface */}
       <section className="rounded-2xl bg-[var(--bg-surface)] border border-[var(--border-subtle)] p-6 sm:p-10">
         <div className="max-w-3xl mx-auto space-y-4">
-          <input
-            type="text"
-            value={manuscriptTitle}
-            onChange={(e) => setManuscriptTitle(e.target.value)}
-            aria-label="Manuscript title"
-            className="w-full bg-transparent text-2xl sm:text-3xl font-bold text-[var(--text-primary)] focus:outline-none border-b border-transparent focus:border-[#8B5CF6]/40 pb-2"
-          />
+          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-transparent focus-within:border-[#8B5CF6]/40 pb-2">
+            <input
+              type="text"
+              value={manuscriptTitle}
+              onChange={(e) => setManuscriptTitle(e.target.value)}
+              aria-label="Manuscript title"
+              className="flex-1 min-w-[200px] bg-transparent text-2xl sm:text-3xl font-bold text-[var(--text-primary)] focus:outline-none"
+            />
+            <VoiceDictationButton
+              language={preferences.language}
+              label="Dictate"
+              contextHint="manuscript scene"
+              onTranscript={(spoken) =>
+                setText((prev) => appendDictatedText(prev, spoken))
+              }
+            />
+          </div>
           <textarea
             ref={textareaRef}
             rows={18}

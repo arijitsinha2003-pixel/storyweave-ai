@@ -12,6 +12,7 @@ import {
   Trash2,
 } from 'lucide-react';
 import { TRANSLATIONS } from '../i18n/translations';
+import { VoiceDictationButton, appendDictatedText } from './VoiceDictationButton';
 import {
   AppLanguage,
   CharacterProfile,
@@ -408,11 +409,25 @@ export function PlotBuilder({
               />
             </label>
 
-            <label className="block space-y-1.5">
-              <span className="text-xs font-medium text-[var(--text-muted)]">
-                Story Idea / Premise
-              </span>
+            <div className="space-y-1.5">
+              <div className="flex items-center justify-between gap-2">
+                <label
+                  htmlFor="plot-premise"
+                  className="text-xs font-medium text-[var(--text-muted)]"
+                >
+                  Story Idea / Premise
+                </label>
+                <VoiceDictationButton
+                  language={language}
+                  contextHint="plot premise prompt"
+                  onTranscript={(spoken) => {
+                    setPremise((prev) => appendDictatedText(prev, spoken));
+                    if (error) setError(null);
+                  }}
+                />
+              </div>
               <textarea
+                id="plot-premise"
                 rows={3}
                 value={premise}
                 onChange={(e) => {
@@ -422,7 +437,7 @@ export function PlotBuilder({
                 placeholder="e.g., A nocturnal bookshop in Kolkata uncovers manuscripts predicting tomorrow's headlines..."
                 className="w-full rounded-xl bg-[var(--bg-input)] border border-[var(--border-subtle)] px-3.5 py-2.5 text-sm text-[var(--text-primary)] placeholder:text-[var(--text-subtle)] focus:outline-none focus:border-[#8B5CF6]"
               />
-            </label>
+            </div>
           </div>
 
           <div className="lg:col-span-6 space-y-4">
@@ -536,10 +551,18 @@ export function PlotBuilder({
               key={beat.id}
               className="rounded-2xl bg-[var(--bg-surface)] border border-[var(--border-subtle)] p-5 space-y-3"
             >
-              <div className="flex items-center justify-between text-xs text-[var(--accent-text)]">
+              <div className="flex items-center justify-between gap-2 text-xs text-[var(--accent-text)]">
                 <span>
                   0{idx + 1}. {beat.stage}
                 </span>
+                <VoiceDictationButton
+                  compact
+                  language={language}
+                  contextHint={`${beat.stage} beat`}
+                  onTranscript={(spoken) =>
+                    updateBeat(beat.id, 'summary', appendDictatedText(beat.summary, spoken))
+                  }
+                />
               </div>
               <input
                 type="text"
@@ -671,6 +694,19 @@ export function PlotBuilder({
                         </div>
 
                         <div className="flex items-center gap-1 shrink-0">
+                          <VoiceDictationButton
+                            compact
+                            language={language}
+                            contextHint="scene summary"
+                            onTranscript={(spoken) =>
+                              updateScene(
+                                chapter.id,
+                                scene.id,
+                                'summary',
+                                appendDictatedText(scene.summary, spoken)
+                              )
+                            }
+                          />
                           <button
                             type="button"
                             disabled={sIdx === 0}

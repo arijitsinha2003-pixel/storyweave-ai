@@ -1,6 +1,6 @@
 /**
  * Procedural Web Audio synthesizer for the StoryWeave cinematic intro.
- * Audio never autoplays — it activates only when the user explicitly toggles sound on.
+ * Starts automatically when the intro opens and can be disabled anytime by the user.
  */
 export class CinematicAudioEngine {
   private ctx: AudioContext | null = null;
@@ -27,7 +27,9 @@ export class CinematicAudioEngine {
     }
 
     if (this.ctx.state === 'suspended') {
-      void this.ctx.resume();
+      void this.ctx.resume().catch(() => {
+        // Browser may require a user gesture before resuming suspended audio
+      });
     }
 
     const now = this.ctx.currentTime;
@@ -37,12 +39,26 @@ export class CinematicAudioEngine {
     return true;
   }
 
+  public resumeIfAllowed(): void {
+    if (!this.isEnabled || !this.ctx) return;
+    if (this.ctx.state === 'suspended') {
+      void this.ctx.resume().catch(() => {
+        // Ignore resume failure
+      });
+    }
+  }
+
   public disable(): void {
     this.isEnabled = false;
     if (!this.ctx || !this.masterGain) return;
     const now = this.ctx.currentTime;
     this.masterGain.gain.cancelScheduledValues(now);
-    this.masterGain.gain.setTargetAtTime(0.0001, now, 0.18);
+    this.masterGain.gain.setTargetAtTime(0.0001, now, 0.08);
+    if (this.ctx.state === 'running') {
+      void this.ctx.suspend().catch(() => {
+        // Ignore suspend failure
+      });
+    }
   }
 
   private startAmbientPad(): void {

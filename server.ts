@@ -258,7 +258,7 @@ function ensureGeminiKey(res: express.Response): boolean {
 
 async function startServer() {
   const app = express();
-  app.use(express.json({ limit: "2mb" }));
+  app.use(express.json({ limit: "8mb" }));
 
   app.get("/api/health", (_req, res) => {
     res.json({ ok: true });
@@ -608,8 +608,22 @@ async function startServer() {
           responseMimeType: "application/json",
           responseSchema: {
             type: Type.OBJECT,
-            required: ["name", "role", "personality", "background", "strengths", "weaknesses"],
-            propertyOrdering: ["name", "role", "personality", "background", "strengths", "weaknesses"],
+            required: [
+              "name",
+              "role",
+              "personality",
+              "background",
+              "strengths",
+              "weaknesses",
+            ],
+            propertyOrdering: [
+              "name",
+              "role",
+              "personality",
+              "background",
+              "strengths",
+              "weaknesses",
+            ],
             properties: {
               name: { type: Type.STRING },
               role: { type: Type.STRING },
@@ -627,14 +641,26 @@ async function startServer() {
         return res.status(502).json({ error: "Empty response from Gemini." });
       }
       const parsed = parseJsonSafe(rawText);
+      const normalizeText = (val: unknown) =>
+        String(val ?? "")
+          .replace(/\r\n/g, "\n")
+          .replace(/\\n/g, "\n")
+          .trim();
+      const sanitizeTraits = (arr: unknown) =>
+        Array.isArray(arr)
+          ? Array.from(
+              new Set(arr.map((item) => normalizeText(item)).filter(Boolean))
+            ).slice(0, 15)
+          : [];
+
       return res.json({
         character: {
-          name: String(parsed.name ?? "Unnamed Character").trim(),
-          role: String(parsed.role ?? "Protagonist").trim(),
-          personality: String(parsed.personality ?? "").trim(),
-          background: String(parsed.background ?? "").trim(),
-          strengths: Array.isArray(parsed.strengths) ? parsed.strengths.map(String) : [],
-          weaknesses: Array.isArray(parsed.weaknesses) ? parsed.weaknesses.map(String) : [],
+          name: normalizeText(parsed.name) || "Unnamed Character",
+          role: normalizeText(parsed.role) || (roleHint ?? "").trim() || "Protagonist",
+          personality: normalizeText(parsed.personality),
+          background: normalizeText(parsed.background),
+          strengths: sanitizeTraits(parsed.strengths),
+          weaknesses: sanitizeTraits(parsed.weaknesses),
         },
       });
     } catch (error) {
@@ -1165,6 +1191,116 @@ async function startServer() {
         });
       }
       return handleGeminiError(res, error, "Could not synthesize story voice");
+    }
+  });
+
+  // --- Voice Dictation / Audio Transcription Endpoint ---
+  app.post("/api/voice/transcribe", async (req, res) => {
+    if (!ensureGeminiKey(res)) return;
+
+    const { audioBase64, mimeType, language, contextHint } = (req.body ?? {}) as {
+      audioBase64?: string;
+      mimeType?: string;
+      language?: string;
+      contextHint?: string;
+    };
+
+    if (typeof audioBase64 !== "string" || !audioBase64.trim()) {
+      return res.status(400).json({
+        error: "Recorded audio data is required for transcription.",
+      });
+    }
+
+    const cleanedBase64 = audioBase64
+      .replace(/^data:[^;]+;base64,/, "")
+      .trim();
+
+    if (!cleanedBase64 || cleanedBase64.length > 7_500_000) {
+      return res.status(400).json({
+        error: "Audio clip is empty or exceeds the 60-second recording limit.",
+      });
+    }
+
+    // Strip codec suffixes like ';codecs=opus' for broad Gemini compatibility
+    const rawMime = typeof mimeType === "string" ? mimeType.split(";")[0].trim().toLowerCase() : "";
+    const ALLOWED_AUDIO_MIMES = new Set([
+      "audio/webm",
+      "audio/mp4",
+      "audio/mpeg",
+      "audio/mp3",
+      "audio/ogg",
+      "audio/wav",
+      "audio/aac",
+      "audio/flac",
+    ]);
+    const safeMime = ALLOWED_AUDIO_MIMES.has(rawMime) ? rawMime : "audio/webm";
+    const targetLangName = resolveLanguageInstruction(language);
+    const hintText =
+      typeof contextHint === "string" && contextHint.trim()
+        ? ` Context: ${contextHint.trim().slice(0, 120)}.`
+        : "";
+
+    const promptText =
+      `Transcribe the spoken audio accurately into clean, properly punctuated text in ${targetLangName}.` +
+      `${hintText} Return ONLY the transcribed words without timestamps, speaker labels, quotes, or commentary. ` +
+      `If the audio is silent or contains no intelligible speech, return an empty string.`;
+
+    const audioPart = {
+      inlineData: {
+        mimeType: safeMime,
+        data: cleanedBase64,
+      },
+    };
+
+    try {
+      const ai = getAiClient();
+      let response;
+
+      try {
+        response = await runWithTimeout(
+          (signal) =>
+            ai.models.generateContent({
+              model: "gemini-3.5-transcribe",
+              contents: { parts: [audioPart, { text: promptText }] },
+              config: {
+                abortSignal: signal,
+              } as Parameters<typeof ai.models.generateContent>[0]["config"],
+            }),
+          22000,
+          "Audio transcription (gemini-3.5-transcribe)"
+        );
+      } catch (primaryErr) {
+        if (isAuthOrBadRequestError(primaryErr)) {
+          throw primaryErr;
+        }
+        const reason = isQuotaOrRateError(primaryErr)
+          ? "rate/quota limit"
+          : primaryErr instanceof Error
+            ? primaryErr.message
+            : "transient condition";
+        console.info(
+          `Switching to ${FALLBACK_TEXT_MODEL} after gemini-3.5-transcribe ${reason}.`
+        );
+        await sleep(250);
+
+        response = await runWithTimeout(
+          (signal) =>
+            ai.models.generateContent({
+              model: FALLBACK_TEXT_MODEL,
+              contents: { parts: [audioPart, { text: promptText }] },
+              config: {
+                abortSignal: signal,
+              } as Parameters<typeof ai.models.generateContent>[0]["config"],
+            }),
+          30000,
+          `Audio transcription fallback (${FALLBACK_TEXT_MODEL})`
+        );
+      }
+
+      const transcript = (response.text ?? "").trim();
+      return res.json({ transcript });
+    } catch (error) {
+      return handleGeminiError(res, error, "Could not transcribe voice recording");
     }
   });
 

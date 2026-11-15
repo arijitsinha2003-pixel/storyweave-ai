@@ -9,6 +9,7 @@ import {
   Sparkles,
 } from 'lucide-react';
 import { TRANSLATIONS } from '../i18n/translations';
+import { VoiceDictationButton, appendDictatedText } from './VoiceDictationButton';
 import {
   AlternativeEndingOption,
   AppLanguage,
@@ -230,31 +231,59 @@ export function AlternativeEndings({
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <label className="block space-y-1.5">
-            <span className="text-xs font-medium text-[var(--text-muted)]">
-              Premise / Stakes
-            </span>
+          <div className="space-y-1.5">
+            <div className="flex items-center justify-between gap-2">
+              <label
+                htmlFor="ending-premise"
+                className="text-xs font-medium text-[var(--text-muted)]"
+              >
+                Premise / Stakes
+              </label>
+              <VoiceDictationButton
+                compact
+                language={language}
+                contextHint="story premise and stakes"
+                onTranscript={(spoken) =>
+                  setCustomPremise((prev) => appendDictatedText(prev, spoken))
+                }
+              />
+            </div>
             <textarea
+              id="ending-premise"
               rows={3}
               value={customPremise}
               onChange={(e) => setCustomPremise(e.target.value)}
               placeholder="Summarize the central conflict or premise..."
               className="w-full rounded-xl bg-[var(--bg-input)] border border-[var(--border-subtle)] px-3.5 py-2.5 text-sm text-[var(--text-primary)] placeholder:text-[var(--text-subtle)] focus:outline-none focus:border-[#8B5CF6]"
             />
-          </label>
+          </div>
 
-          <label className="block space-y-1.5">
-            <span className="text-xs font-medium text-[var(--text-muted)]">
-              Current Draft / Climax Context
-            </span>
+          <div className="space-y-1.5">
+            <div className="flex items-center justify-between gap-2">
+              <label
+                htmlFor="ending-narrative"
+                className="text-xs font-medium text-[var(--text-muted)]"
+              >
+                Current Draft / Climax Context
+              </label>
+              <VoiceDictationButton
+                compact
+                language={language}
+                contextHint="climax draft context"
+                onTranscript={(spoken) =>
+                  setCustomNarrative((prev) => appendDictatedText(prev, spoken))
+                }
+              />
+            </div>
             <textarea
+              id="ending-narrative"
               rows={3}
               value={customNarrative}
               onChange={(e) => setCustomNarrative(e.target.value)}
               placeholder="Paste the scene leading up to the ending..."
               className="w-full rounded-xl bg-[var(--bg-input)] border border-[var(--border-subtle)] px-3.5 py-2.5 text-sm text-[var(--text-primary)] placeholder:text-[var(--text-subtle)] focus:outline-none focus:border-[#8B5CF6]"
             />
-          </label>
+          </div>
         </div>
 
         {error && (

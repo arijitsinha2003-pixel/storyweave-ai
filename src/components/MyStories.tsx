@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { BookOpen, Edit3, Headphones, PenTool, Plus, Search, Trash2, X } from 'lucide-react';
+import { BookOpen, Edit3, FileDown, Headphones, Loader2, PenTool, Plus, Search, Trash2, X } from 'lucide-react';
 import { TRANSLATIONS } from '../i18n/translations';
 import { StoryVoiceAssistant } from './StoryVoiceAssistant';
 import { AppLanguage, StoryRecord } from '../types/story';
@@ -26,6 +26,7 @@ export function MyStories({
   const [genreFilter, setGenreFilter] = useState('All');
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [listeningStoryId, setListeningStoryId] = useState<string | null>(null);
+  const [exportingPdfId, setExportingPdfId] = useState<string | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
 
   const listeningStory = useMemo(
@@ -238,6 +239,35 @@ export function MyStories({
                   >
                     <PenTool className="w-3.5 h-3.5" />
                     <span>{t.myStories.coWrite}</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    disabled={exportingPdfId === story.id}
+                    onClick={async () => {
+                      setDeleteError(null);
+                      setExportingPdfId(story.id);
+                      try {
+                        const { exportStoryToPdf } = await import('../utils/exportStoryPdf');
+                        await exportStoryToPdf(story);
+                      } catch (err) {
+                        setDeleteError(
+                          err instanceof Error ? err.message : 'Unable to export PDF.'
+                        );
+                      } finally {
+                        setExportingPdfId(null);
+                      }
+                    }}
+                    title="Save as PDF"
+                    aria-label={`Save ${story.title} as PDF`}
+                    className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium text-[var(--text-primary)] bg-[var(--bg-elevated)] border border-[var(--border-subtle)] hover:border-[#8B5CF6]/55 disabled:opacity-60 transition-colors cursor-pointer"
+                  >
+                    {exportingPdfId === story.id ? (
+                      <Loader2 className="w-3.5 h-3.5 animate-spin text-[var(--accent-text)]" />
+                    ) : (
+                      <FileDown className="w-3.5 h-3.5 text-[var(--accent-text)]" />
+                    )}
+                    <span>PDF</span>
                   </button>
 
                   {confirmDeleteId === story.id ? (
