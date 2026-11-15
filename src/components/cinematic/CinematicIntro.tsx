@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
-import { ArrowRight } from 'lucide-react';
+import { ArrowRight, Volume2, VolumeX } from 'lucide-react';
 import {
   createGlyphAtlasTexture,
   createLeatherCoverTexture,
@@ -48,6 +48,7 @@ export function CinematicIntro({ onComplete }: CinematicIntroProps) {
   const fallbackGlowRef = useRef<HTMLDivElement | null>(null);
   const lastChapterIdxRef = useRef<number>(0);
 
+  const [soundEnabled, setSoundEnabled] = useState(false);
   const [sceneLabel, setSceneLabel] = useState(SCENE_CHAPTERS[0].label);
   const [overlayFadeOut, setOverlayFadeOut] = useState(false);
   const [reducedMotion, setReducedMotion] = useState(false);
@@ -67,6 +68,19 @@ export function CinematicIntro({ onComplete }: CinematicIntroProps) {
     }, 800);
   };
 
+  const handleToggleSound = () => {
+    if (!audioRef.current) {
+      audioRef.current = new CinematicAudioEngine();
+    }
+    if (soundEnabled) {
+      audioRef.current.disable();
+      setSoundEnabled(false);
+    } else {
+      const started = audioRef.current.enable();
+      setSoundEnabled(started);
+    }
+  };
+
   useEffect(() => {
     const prefersReduced =
       typeof window !== 'undefined' &&
@@ -83,25 +97,8 @@ export function CinematicIntro({ onComplete }: CinematicIntroProps) {
       return () => window.clearTimeout(timer);
     }
 
-    if (!audioRef.current) {
-      audioRef.current = new CinematicAudioEngine();
-    }
-    audioRef.current.enable();
-
-    const handleFirstInteraction = () => {
-      audioRef.current?.resumeIfAllowed();
-    };
-    window.addEventListener('pointerdown', handleFirstInteraction, { passive: true });
-    window.addEventListener('keydown', handleFirstInteraction, { passive: true });
-    window.addEventListener('touchstart', handleFirstInteraction, { passive: true });
-
     const container = mountRef.current;
-    if (!container) {
-      window.removeEventListener('pointerdown', handleFirstInteraction);
-      window.removeEventListener('keydown', handleFirstInteraction);
-      window.removeEventListener('touchstart', handleFirstInteraction);
-      return;
-    }
+    if (!container) return;
 
     const isMobile = window.innerWidth < 768;
 
@@ -995,9 +992,6 @@ export function CinematicIntro({ onComplete }: CinematicIntroProps) {
         finishTimeoutRef.current = null;
       }
       window.removeEventListener('resize', handleResize);
-      window.removeEventListener('pointerdown', handleFirstInteraction);
-      window.removeEventListener('keydown', handleFirstInteraction);
-      window.removeEventListener('touchstart', handleFirstInteraction);
       audioRef.current?.dispose();
 
       starGeo.dispose();
@@ -1135,8 +1129,26 @@ export function CinematicIntro({ onComplete }: CinematicIntroProps) {
         </p>
       </div>
 
-      {/* Top-Right Control: Skip Intro (solid rgba, zero backdrop-filter over WebGL) */}
-      <div className="absolute top-10 right-4 sm:top-14 sm:right-6 z-20 flex items-center">
+      {/* Top-Right Controls: Enable Sound + Skip Intro (solid rgba, zero backdrop-filter over WebGL) */}
+      <div className="absolute top-10 right-4 sm:top-14 sm:right-6 z-20 flex items-center gap-2.5">
+        {!reducedMotion && (
+          <button
+            type="button"
+            onClick={handleToggleSound}
+            aria-label={soundEnabled ? 'Mute intro audio' : 'Enable intro audio'}
+            aria-pressed={soundEnabled}
+            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-medium text-[#E2E8F0] border border-[#A78BFA]/25 hover:border-[#A78BFA]/60 transition-colors cursor-pointer"
+            style={{ backgroundColor: 'rgba(11, 11, 20, 0.8)' }}
+          >
+            {soundEnabled ? (
+              <Volume2 className="w-3.5 h-3.5 text-[#FBBF24]" />
+            ) : (
+              <VolumeX className="w-3.5 h-3.5 text-[#A78BFA]" />
+            )}
+            <span>{soundEnabled ? 'Sound On' : 'Enable Sound'}</span>
+          </button>
+        )}
+
         <button
           type="button"
           onClick={triggerFinish}
