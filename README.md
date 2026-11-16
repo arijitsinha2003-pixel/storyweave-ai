@@ -754,6 +754,52 @@ Planned screenshots:
 - AI Co-Writer.
 - My Stories.
 
+---
+
+## 📸 Project Screenshots
+
+### 🏠 Landing Page
+<p align="center">
+  <img src="Screenshot_20261116_151821_Chrome.jpg"
+       alt="StoryWeave Landing Page"
+       width="100%"/>
+</p>
+
+### 📊 Dashboard
+<p align="center">
+  <img src="Screenshot_20261116_151825_Chrome.jpg"
+       alt="StoryWeave Dashboard"
+       width="100%"/>
+</p>
+
+### 📖 AI Story Generator
+<p align="center">
+  <img src="Screenshot_20261116_151835_Chrome.jpg"
+       alt="AI Story Generator"
+       width="100%"/>
+</p>
+
+### 🧙 Character Studio
+<p align="center">
+  <img src="Screenshot_20261116_155036_Chrome.jpg"
+       alt="Character Studio"
+       width="100%"/>
+</p>
+
+### 🗺️ Plot Builder
+<p align="center">
+  <img src="Screenshot_20261116_152211_Chrome.jpg"
+       alt="Plot Builder"
+       width="100%"/>
+</p>
+
+### ✍️ AI Co-Writer
+<p align="center">
+  <img src="Screenshot_20261116_152218_Chrome.jpg"
+       alt="AI Co-Writer"
+       width="100%"/>
+</p>
+
 **Live Demo Video Link:** - https://youtu.be/E06WYT9pGYc?si=hJZCkL96veqkrxpo
 
 ---
