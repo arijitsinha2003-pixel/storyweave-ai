@@ -853,7 +853,7 @@ Our vision is to evolve StoryWeave into a complete AI-powered creative storytell
 
 ### 🚀 Created with Passion by
 
-<img src="Neon Tech Tit...eam Logo.png" alt="TechTitans_401 Team Logo" width="180"/>
+<img src="Neon Tech Titans Team Logo.png" alt="TechTitans_401 Team Logo" width="180"/>
 
 # TECHTITANS_401
 
