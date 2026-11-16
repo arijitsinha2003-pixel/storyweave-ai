@@ -1,3 +1,18 @@
+
+<p align="center">
+  <img
+    src="assets/StoryWeave-banner.jpg"
+    alt="StoryWeave Banner"
+    width="100%"
+  />
+</p>
+
+<h1 align="center">StoryWeave</h1>
+
+<p align="center">
+  Your Imagination. Our Intelligence. Infinite Stories.
+</p>
+
 # ✨ StoryWeave
 ### Your Imagination. Our Intelligence. Infinite Stories.
 
