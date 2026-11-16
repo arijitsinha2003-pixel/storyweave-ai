@@ -801,6 +801,7 @@ Planned screenshots:
 </p>
 
 **Live Demo Video Link:** - https://youtu.be/E06WYT9pGYc?si=hJZCkL96veqkrxpo
+
 **MVP Link (50% of the prototype)** - https://storyweave.ai.studio/
 
 ---
