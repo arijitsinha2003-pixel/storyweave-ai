@@ -1,7 +1,7 @@
 
 <p align="center">
   <img
-    src="assets/StoryWeave-banner.jpg"
+    src="StoryWeave-banner.jpg"
     alt="StoryWeave Banner"
     width="100%"
   />
