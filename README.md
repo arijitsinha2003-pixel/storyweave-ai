@@ -847,3 +847,24 @@ Our vision is to evolve StoryWeave into a complete AI-powered creative storytell
   <br/><br/>
   Made with 💜 and imagination by the StoryWeave Team TechTitans_401
 </p>
+---
+
+<div align="center">
+
+### 🚀 Created with Passion by
+
+<img src="Neon Tech Tit...eam Logo.png" alt="TechTitans_401 Team Logo" width="180"/>
+
+# TECHTITANS_401
+
+**The Team Behind StoryWeave**
+
+Arijit Sinha · Arunjit Jana · Aniket Saha · Arijit Roy
+
+*Innovating Today. Creating Tomorrow.*
+
+---
+
+**StoryWeave – Your Imagination. Our Intelligence. Infinite Stories.**
+
+</div>
