@@ -1,4 +1,3 @@
-
 <p align="center">
   <img
     src="StoryWeave-banner.jpg"
@@ -755,9 +754,7 @@ Planned screenshots:
 - AI Co-Writer.
 - My Stories.
 
-Add actual screenshots to the `docs/screenshots/` directory as the corresponding features become available.
-
-**Live Demo:** Coming Soon.
+**Live Demo Video Link:** - https://youtu.be/E06WYT9pGYc?si=hJZCkL96veqkrxpo
 
 ---
 
@@ -788,6 +785,60 @@ With StoryWeave, we are building a creative space where human ideas and artifici
 **We don't just generate stories. We help imagination find its voice.**
 
 ---
+---
+
+## 🔮 Future Enhancements
+
+At StoryWeave, we believe storytelling has endless possibilities. Our current MVP is just the beginning. We aim to continuously improve the platform by introducing more intelligent, interactive, and immersive creative experiences.
+
+Here are some features we envision for future development:
+
+### 🎨 1. AI-Powered Visual Storytelling
+- Allow users to transform written stories into AI-generated illustrations.
+- Generate visuals for individual scenes and important story moments.
+- Offer multiple artistic styles, including cinematic 3D, anime, realistic, watercolor, and digital painting.
+
+### 🧑‍🎨 2. AI Character Visualization
+- Generate character portraits and full-body illustrations from character descriptions.
+- Maintain visual consistency of characters across different scenes.
+- Allow users to customize character appearances and artistic styles.
+
+### 🎬 3. Story-to-Video Generation
+- Transform selected story scenes into short animated sequences.
+- Add cinematic transitions, sound effects, and background music.
+- Create immersive visual storytelling experiences.
+
+### 🌍 4. Collaborative Storytelling
+- Enable multiple users to collaborate on a single story.
+- Share ideas, edit chapters, and develop characters together.
+- Introduce collaborative creative writing spaces.
+
+### 🎙️ 5. AI Voice Narration
+- Convert written stories into natural-sounding audio narration.
+- Support different voices, tones, and storytelling styles.
+- Make stories accessible through an audio experience.
+
+### 📚 6. Advanced Story Library
+- Organize stories into personalized collections.
+- Save favorite characters, plots, and generated illustrations.
+- Enable easy access to previously created projects.
+
+### 🧠 7. Smarter AI Co-Writer
+- Provide more context-aware writing suggestions.
+- Improve narrative continuity and character consistency.
+- Offer advanced dialogue, plot development, and storytelling assistance.
+
+### 🚀 Our Long-Term Vision
+
+Our vision is to evolve StoryWeave into a complete AI-powered creative storytelling ecosystem where users can imagine, write, visualize, narrate, and share their stories.
+
+**We don't just want to help people write stories. We want to help them bring entire worlds to life.**
+
+*StoryWeave – Your Imagination. Our Intelligence. Infinite Stories.*
+
+---
+
+<sub>Note: The enhancements listed above represent our future development goals and may not be available in the current MVP.</sub>
 
 <p align="center">
   <strong>✨ STORYWEAVE</strong>
