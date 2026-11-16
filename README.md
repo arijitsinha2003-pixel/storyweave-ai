@@ -674,7 +674,7 @@ Our focus is to establish a working core application first and gradually introdu
 
 ---
 
-## 🔮 13. Future Enhancements
+## 🔮 13. Future Enhancements at a glance 
 
 We envision expanding StoryWeave into a more comprehensive creative storytelling ecosystem.
 
@@ -787,7 +787,7 @@ With StoryWeave, we are building a creative space where human ideas and artifici
 ---
 ---
 
-## 🔮 Future Enhancements
+## 🔮 Future Development in details
 
 At StoryWeave, we believe storytelling has endless possibilities. Our current MVP is just the beginning. We aim to continuously improve the platform by introducing more intelligent, interactive, and immersive creative experiences.
 
